@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./Excel:/seed/Excel:ro
+      - mo_data:/data
+    environment:
+      DATA_DIR: /data
+      EXCEL_SEED_DIR: /seed/Excel
+    restart: unless-stopped
+
+volumes:
+  mo_data:

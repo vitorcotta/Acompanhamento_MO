@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Acompanhamento MO — Infra</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>Acompanhamento MO</h1>
+      <p class="subtitle">Distribuição de mão de obra · ADM vs time · variação mensal</p>
+    </div>
+    <div class="header-actions">
+      <label class="select-wrap">
+        Exercício
+        <select id="exercicio"></select>
+      </label>
+      <button type="button" id="btn-reimport" class="btn secondary" title="Reprocessar arquivos em Excel/ e uploads">Reimportar</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button type="button" class="tab active" data-tab="dashboard">Dashboard</button>
+    <button type="button" class="tab" data-tab="pivot">Por equipe</button>
+    <button type="button" class="tab" data-tab="divisao">Por divisão</button>
+    <button type="button" class="tab" data-tab="orcamento">Orçado vs realizado</button>
+    <button type="button" class="tab" data-tab="upload">Upload</button>
+    <button type="button" class="tab" data-tab="arquivos">Arquivos</button>
+  </nav>
+
+  <main>
+    <section id="panel-dashboard" class="panel active">
+      <div class="cards" id="cards-mes"></div>
+      <div class="charts-grid">
+        <div class="chart-box">
+          <h2>Total mensal</h2>
+          <div class="chart-canvas-wrap"><canvas id="chart-total"></canvas></div>
+        </div>
+        <div class="chart-box">
+          <h2>% ADM sobre o total</h2>
+          <div class="chart-canvas-wrap"><canvas id="chart-adm-pct"></canvas></div>
+        </div>
+        <div class="chart-box">
+          <h2>ADM vs time</h2>
+          <div class="chart-canvas-wrap"><canvas id="chart-stack"></canvas></div>
+        </div>
+        <div class="chart-box">
+          <h2>Rateio por divisão</h2>
+          <div class="chart-canvas-wrap"><canvas id="chart-divisoes"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-pivot" class="panel">
+      <p class="hint">Valores realizados por <strong>Descrição Despesa</strong> (equipe). Células mostram variação % vs mês anterior.</p>
+      <div class="table-scroll">
+        <table id="pivot-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="panel-divisao" class="panel">
+      <div class="panel-toolbar">
+        <label class="select-wrap">
+          Divisão
+          <select id="divisao-filtro"></select>
+        </label>
+      </div>
+      <p class="hint">Visão filtrada pela coluna <strong>Divisão</strong> do Excel (Comércio, Logística, Holding, etc.).</p>
+      <div class="cards" id="div-cards-mes"></div>
+      <div class="charts-row">
+        <div class="chart-box">
+          <h2>Total mensal</h2>
+          <canvas id="div-chart-total"></canvas>
+        </div>
+        <div class="chart-box">
+          <h2>% ADM sobre o total</h2>
+          <canvas id="div-chart-adm-pct"></canvas>
+        </div>
+      </div>
+      <div class="chart-box wide">
+        <h2>ADM vs time (empilhado)</h2>
+        <canvas id="div-chart-stack"></canvas>
+      </div>
+      <h3 class="section-title">Por equipe na divisão</h3>
+      <div class="table-scroll">
+        <table id="div-pivot-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="panel-orcamento" class="panel">
+      <div class="panel-toolbar">
+        <label class="select-wrap">
+          Divisão
+          <select id="orc-divisao-filtro">
+            <option value="">Todas</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">Comparativo por chave <strong>Despesa + Divisão</strong> (ex.: R1089 · Comércio). Orçado = planilha Orçamento; realizado = rateios mensais.</p>
+      <div class="cards" id="orc-cards"></div>
+      <div class="charts-grid charts-grid--2">
+        <div class="chart-box">
+          <h2>Orçado vs realizado (mensal)</h2>
+          <div class="chart-canvas-wrap"><canvas id="orc-chart-compare"></canvas></div>
+        </div>
+        <div class="chart-box">
+          <h2>% consumo do orçado</h2>
+          <div class="chart-canvas-wrap"><canvas id="orc-chart-consumo"></canvas></div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table id="orc-table" class="orc-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="orc-empty" class="hint hidden">Nenhum orçamento importado. Coloque <strong>Orçamento.xlsx</strong> em Excel/ e clique em Reimportar, ou envie pelo Upload.</p>
+    </section>
+
+    <section id="panel-upload" class="panel">
+      <div class="upload-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".xlsx,.xls" hidden />
+        <p>Arraste o Excel mensal aqui ou <button type="button" class="link-btn" id="btn-pick">selecione o arquivo</button></p>
+        <p class="hint">Realizado: Descrição Despesa, Nome, Valor realizado rateio, Período contábil, Sistema de origem, Divisão, Despesa. Orçamento: Despesa, Divisão, meses Jan–Dez.</p>
+      </div>
+      <div id="upload-status" class="status hidden"></div>
+    </section>
+
+    <section id="panel-arquivos" class="panel">
+      <table class="simple-table" id="arquivos-table">
+        <thead>
+          <tr>
+            <th>Arquivo</th>
+            <th>Exercício</th>
+            <th>Meses</th>
+            <th>Linhas</th>
+            <th>Importado em</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
