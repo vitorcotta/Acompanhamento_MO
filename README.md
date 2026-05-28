@@ -31,6 +31,7 @@ Abra no navegador: **http://localhost:8000**
 
 - **Dashboard**: gráficos e cards mensais (ADM %, total, variação)
 - **Por equipe**: visão tipo pivot por linha de despesa
+- **Por pessoa**: mesma tabela pivot, agrupada por **Nome** (colaborador)
 - **Por divisão**: mesmo acompanhamento filtrado pela coluna Divisão
 - **Orçado vs realizado**: compara planilha `Orçamento.xlsx` (Jan–Dez) com o realizado, pela chave **Despesa + Divisão**
 - **Upload**: envie o Excel do mês; períodos já existentes são substituídos pelos dados do novo arquivo
@@ -40,7 +41,9 @@ Os dados ficam no volume Docker `mo_data` (banco SQLite + uploads). A pasta `Exc
 
 ### Reimportar
 
-O botão **Reimportar** reprocessa tudo em `Excel/` e em `/data/uploads` (útil após adicionar arquivos na pasta sem subir de novo).
+O botão **Reimportar** reprocessa os realizados e o **Orçamento.xlsx** em `Excel/`, além dos arquivos em `/data/uploads`.
+
+**Orçamento:** após subir pelo Upload, ele fica no volume Docker. Ao reiniciar o container, **não** volta a puxar automaticamente de `Excel/` (só de uploads ou via Reimportar). Para trocar o orçado, use **Upload** ou exclua na aba Arquivos (tipo Orçamento).
 
 ## Desenvolvimento local (sem Docker)
 

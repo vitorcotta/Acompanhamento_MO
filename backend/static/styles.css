@@ -75,6 +75,7 @@ select {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0.5rem 1.5rem;
   border-bottom: 1px solid var(--border);
@@ -167,19 +168,21 @@ main { padding: 1.25rem 1.5rem; max-width: 1400px; margin: 0 auto; }
 
 .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
 
-#pivot-table {
+.pivot-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8rem;
   background: var(--surface);
 }
-#pivot-table th, #pivot-table td {
+.pivot-table th,
+.pivot-table td {
   padding: 0.5rem 0.65rem;
   border-bottom: 1px solid var(--border);
   text-align: right;
   white-space: nowrap;
 }
-#pivot-table th:first-child, #pivot-table td:first-child {
+.pivot-table th:first-child,
+.pivot-table td:first-child {
   text-align: left;
   position: sticky;
   left: 0;
@@ -188,11 +191,33 @@ main { padding: 1.25rem 1.5rem; max-width: 1400px; margin: 0 auto; }
   max-width: 220px;
   white-space: normal;
 }
-#pivot-table thead th { background: var(--surface2); color: var(--muted); font-weight: 500; }
-#pivot-table .equipe-name { font-weight: 500; }
-#pivot-table .var-up { color: var(--up); font-size: 0.7rem; display: block; }
-#pivot-table .var-down { color: var(--down); font-size: 0.7rem; display: block; }
-#pivot-table .sub { font-size: 0.68rem; color: var(--muted); }
+.pivot-table thead th {
+  background: var(--surface2);
+  color: var(--muted);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.pivot-table thead th:first-child {
+  z-index: 3;
+}
+.pivot-table tbody tr:hover td {
+  background: #24304488;
+}
+.pivot-table tbody tr:hover td:first-child {
+  background: #243044;
+}
+.pivot-table .pivot-row-name { font-weight: 500; }
+.pivot-table .var-up { color: var(--up); font-size: 0.7rem; display: block; }
+.pivot-table .var-down { color: var(--down); font-size: 0.7rem; display: block; }
+.pivot-table .sub { font-size: 0.68rem; color: var(--muted); }
+
+.pivot-table--pessoas th:first-child,
+.pivot-table--pessoas td:first-child {
+  max-width: 280px;
+  min-width: 160px;
+}
 
 .upload-zone {
   border: 2px dashed var(--border);

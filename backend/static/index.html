@@ -26,6 +26,7 @@
   <nav class="tabs">
     <button type="button" class="tab active" data-tab="dashboard">Dashboard</button>
     <button type="button" class="tab" data-tab="pivot">Por equipe</button>
+    <button type="button" class="tab" data-tab="pessoas">Por pessoa</button>
     <button type="button" class="tab" data-tab="divisao">Por divisão</button>
     <button type="button" class="tab" data-tab="orcamento">Orçado vs realizado</button>
     <button type="button" class="tab" data-tab="upload">Upload</button>
@@ -58,7 +59,17 @@
     <section id="panel-pivot" class="panel">
       <p class="hint">Valores realizados por <strong>Descrição Despesa</strong> (equipe). Células mostram variação % vs mês anterior.</p>
       <div class="table-scroll">
-        <table id="pivot-table">
+        <table id="pivot-table" class="pivot-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="panel-pessoas" class="panel">
+      <p class="hint">Valores realizados por <strong>Nome</strong> (colaborador). Células mostram variação % vs mês anterior.</p>
+      <div class="table-scroll">
+        <table id="pessoas-pivot-table" class="pivot-table pivot-table--pessoas">
           <thead></thead>
           <tbody></tbody>
         </table>
@@ -77,20 +88,20 @@
       <div class="charts-row">
         <div class="chart-box">
           <h2>Total mensal</h2>
-          <canvas id="div-chart-total"></canvas>
+          <div class="chart-canvas-wrap"><canvas id="div-chart-total"></canvas></div>
         </div>
         <div class="chart-box">
           <h2>% ADM sobre o total</h2>
-          <canvas id="div-chart-adm-pct"></canvas>
+          <div class="chart-canvas-wrap"><canvas id="div-chart-adm-pct"></canvas></div>
         </div>
       </div>
       <div class="chart-box wide">
         <h2>ADM vs time (empilhado)</h2>
-        <canvas id="div-chart-stack"></canvas>
+        <div class="chart-canvas-wrap"><canvas id="div-chart-stack"></canvas></div>
       </div>
       <h3 class="section-title">Por equipe na divisão</h3>
       <div class="table-scroll">
-        <table id="div-pivot-table">
+        <table id="div-pivot-table" class="pivot-table">
           <thead></thead>
           <tbody></tbody>
         </table>
@@ -141,6 +152,7 @@
         <thead>
           <tr>
             <th>Arquivo</th>
+            <th>Tipo</th>
             <th>Exercício</th>
             <th>Meses</th>
             <th>Linhas</th>

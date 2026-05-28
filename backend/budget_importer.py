@@ -43,8 +43,17 @@ def _file_hash(path: Path) -> str:
 
 
 def _mes_numero(coluna: str) -> int | None:
-    key = str(coluna).strip().lower()
+    key = unicodedata.normalize("NFKD", str(coluna).strip())
+    key = key.encode("ascii", "ignore").decode().lower()
     return MESES_ORCAMENTO.get(key)
+
+
+def _find_orcamento_arquivo(db: Session, nome: str) -> OrcamentoArquivo | None:
+    alvo = _nome_normalizado(Path(nome))
+    for arq in db.query(OrcamentoArquivo).all():
+        if _nome_normalizado(Path(arq.nome)) == alvo:
+            return arq
+    return None
 
 
 def parse_orcamento(path: Path) -> pd.DataFrame:
@@ -118,14 +127,16 @@ def parse_orcamento(path: Path) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def import_orcamento_file(db: Session, path: Path) -> OrcamentoArquivo:
+def import_orcamento_file(
+    db: Session, path: Path, *, force: bool = False
+) -> OrcamentoArquivo:
     path = path.resolve()
     if not path.exists():
         raise FileNotFoundError(path)
 
     content_hash = _file_hash(path)
-    existing = db.query(OrcamentoArquivo).filter(OrcamentoArquivo.nome == path.name).first()
-    if existing and existing.hash_conteudo == content_hash:
+    existing = _find_orcamento_arquivo(db, path.name)
+    if existing and existing.hash_conteudo == content_hash and not force:
         return existing
 
     df = parse_orcamento(path)
@@ -135,6 +146,9 @@ def import_orcamento_file(db: Session, path: Path) -> OrcamentoArquivo:
         synchronize_session=False
     )
     if existing:
+        db.query(Orcamento).filter(Orcamento.arquivo_id == existing.id).delete(
+            synchronize_session=False
+        )
         db.delete(existing)
         db.flush()
 
@@ -178,3 +192,15 @@ def import_orcamento_directory(db: Session, directory: Path) -> list[OrcamentoAr
         except Exception as exc:
             print(f"[orcamento] ignorando {path.name}: {exc}")
     return imported
+
+
+def delete_orcamento_arquivo(db: Session, arquivo_id: int) -> bool:
+    arquivo = db.get(OrcamentoArquivo, arquivo_id)
+    if not arquivo:
+        return False
+    db.query(Orcamento).filter(Orcamento.arquivo_id == arquivo_id).delete(
+        synchronize_session=False
+    )
+    db.delete(arquivo)
+    db.commit()
+    return True

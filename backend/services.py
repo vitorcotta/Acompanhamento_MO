@@ -1,7 +1,7 @@
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from models import Arquivo, Lancamento, Orcamento
+from models import Arquivo, Lancamento, Orcamento, OrcamentoArquivo
 
 MESES_NOME = {
     1: "Jan",
@@ -42,18 +42,35 @@ def _filter_divisao(q, divisao: str | None):
 
 
 def list_arquivos(db: Session) -> list[dict]:
-    rows = db.query(Arquivo).order_by(Arquivo.importado_em.desc()).all()
-    return [
+    realizados = [
         {
             "id": a.id,
+            "tipo": "realizado",
             "nome": a.nome,
             "exercicio": a.exercicio,
             "meses": a.meses,
             "total_linhas": a.total_linhas,
             "importado_em": a.importado_em.isoformat(),
         }
-        for a in rows
+        for a in db.query(Arquivo).order_by(Arquivo.importado_em.desc()).all()
     ]
+    orcamentos = [
+        {
+            "id": a.id,
+            "tipo": "orcamento",
+            "nome": a.nome,
+            "exercicio": a.exercicio,
+            "meses": "Jan–Dez",
+            "total_linhas": a.total_linhas,
+            "importado_em": a.importado_em.isoformat(),
+        }
+        for a in db.query(OrcamentoArquivo).order_by(OrcamentoArquivo.importado_em.desc()).all()
+    ]
+    return sorted(
+        realizados + orcamentos,
+        key=lambda x: x["importado_em"],
+        reverse=True,
+    )
 
 
 def resumo_mensal(db: Session, exercicio: int, divisao: str | None = None) -> list[dict]:
@@ -132,6 +149,54 @@ def resumo_divisoes_mensal(db: Session, exercicio: int) -> dict:
     }
 
 
+def _build_pivot(rows, label_fn) -> dict:
+    meses = sorted({r.mes for r in rows})
+    linhas = sorted({label_fn(r) for r in rows})
+
+    grid: dict[str, dict] = {}
+    for linha in linhas:
+        grid[linha] = {
+            "meses": {m: {"adm": 0.0, "time": 0.0, "total": 0.0} for m in meses},
+            "total_ano": {"adm": 0.0, "time": 0.0, "total": 0.0},
+        }
+
+    for row in rows:
+        label = label_fn(row)
+        bucket = "adm" if row.is_adm else "time"
+        cell = grid[label]["meses"][row.mes]
+        cell[bucket] += row.valor
+        cell["total"] += row.valor
+        grid[label]["total_ano"][bucket] += row.valor
+        grid[label]["total_ano"]["total"] += row.valor
+
+    for linha in grid:
+        for m in meses:
+            for key in ("adm", "time", "total"):
+                grid[linha]["meses"][m][key] = round(grid[linha]["meses"][m][key], 2)
+        for key in ("adm", "time", "total"):
+            grid[linha]["total_ano"][key] = round(grid[linha]["total_ano"][key], 2)
+
+    variacoes: dict[str, dict] = {}
+    for linha, data in grid.items():
+        variacoes[linha] = {}
+        for i, mes in enumerate(meses):
+            if i == 0:
+                variacoes[linha][mes] = None
+                continue
+            prev = data["meses"][meses[i - 1]]["total"]
+            cur = data["meses"][mes]["total"]
+            variacoes[linha][mes] = (
+                round((cur - prev) / prev * 100, 1) if prev else None
+            )
+
+    return {
+        "meses": [{"num": m, "label": MESES_NOME.get(m, str(m))} for m in meses],
+        "linhas": linhas,
+        "grid": grid,
+        "variacoes": variacoes,
+    }
+
+
 def pivot_equipes(db: Session, exercicio: int, divisao: str | None = None) -> dict:
     q = db.query(
         Lancamento.equipe,
@@ -141,51 +206,29 @@ def pivot_equipes(db: Session, exercicio: int, divisao: str | None = None) -> di
     ).filter(Lancamento.exercicio == exercicio)
     q = _filter_divisao(q, divisao)
     rows = q.group_by(Lancamento.equipe, Lancamento.mes, Lancamento.is_adm).all()
+    result = _build_pivot(rows, lambda r: r.equipe)
+    result["equipes"] = result["linhas"]
+    return result
 
-    meses = sorted({r.mes for r in rows})
-    equipes = sorted({r.equipe for r in rows})
 
-    grid: dict[str, dict] = {}
-    for equipe in equipes:
-        grid[equipe] = {
-            "meses": {m: {"adm": 0.0, "time": 0.0, "total": 0.0} for m in meses},
-            "total_ano": {"adm": 0.0, "time": 0.0, "total": 0.0},
-        }
-
-    for row in rows:
-        bucket = "adm" if row.is_adm else "time"
-        cell = grid[row.equipe]["meses"][row.mes]
-        cell[bucket] += row.valor
-        cell["total"] += row.valor
-        grid[row.equipe]["total_ano"][bucket] += row.valor
-        grid[row.equipe]["total_ano"]["total"] += row.valor
-
-    for equipe in grid:
-        for m in meses:
-            for key in ("adm", "time", "total"):
-                grid[equipe]["meses"][m][key] = round(grid[equipe]["meses"][m][key], 2)
-        for key in ("adm", "time", "total"):
-            grid[equipe]["total_ano"][key] = round(grid[equipe]["total_ano"][key], 2)
-
-    variacoes: dict[str, dict] = {}
-    for equipe, data in grid.items():
-        variacoes[equipe] = {}
-        for i, mes in enumerate(meses):
-            if i == 0:
-                variacoes[equipe][mes] = None
-                continue
-            prev = data["meses"][meses[i - 1]]["total"]
-            cur = data["meses"][mes]["total"]
-            variacoes[equipe][mes] = (
-                round((cur - prev) / prev * 100, 1) if prev else None
-            )
-
-    return {
-        "meses": [{"num": m, "label": MESES_NOME.get(m, str(m))} for m in meses],
-        "equipes": equipes,
-        "grid": grid,
-        "variacoes": variacoes,
-    }
+def pivot_colaboradores(db: Session, exercicio: int) -> dict:
+    rows = (
+        db.query(
+            Lancamento.colaborador,
+            Lancamento.mes,
+            Lancamento.is_adm,
+            func.sum(Lancamento.valor).label("valor"),
+        )
+        .filter(
+            Lancamento.exercicio == exercicio,
+            Lancamento.colaborador != "",
+        )
+        .group_by(Lancamento.colaborador, Lancamento.mes, Lancamento.is_adm)
+        .all()
+    )
+    result = _build_pivot(rows, lambda r: r.colaborador)
+    result["colaboradores"] = result["linhas"]
+    return result
 
 
 def colaboradores(db: Session, exercicio: int, mes: int | None = None) -> list[dict]:

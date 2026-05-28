@@ -327,21 +327,22 @@ function renderCharts(chartSet, ids, resumo) {
   });
 }
 
-function renderPivotTable(tableEl, data) {
+function renderPivotTable(tableEl, data, rowHeader = "Equipe (Descrição Despesa)") {
+  const linhas = data.linhas || data.equipes || data.colaboradores || [];
   const thead = tableEl.querySelector("thead");
   const tbody = tableEl.querySelector("tbody");
   const monthHeaders = data.meses
     .map((m) => `<th>${m.label}<br><span class="sub">total / var%</span></th>`)
     .join("");
-  thead.innerHTML = `<tr><th>Equipe (Descrição Despesa)</th>${monthHeaders}<th>Total ano</th></tr>`;
+  thead.innerHTML = `<tr><th>${rowHeader}</th>${monthHeaders}<th>Total ano</th></tr>`;
 
-  tbody.innerHTML = data.equipes
-    .map((equipe) => {
-      const row = data.grid[equipe];
+  tbody.innerHTML = linhas
+    .map((linha) => {
+      const row = data.grid[linha];
       const cells = data.meses
         .map((m) => {
           const cell = row.meses[m.num];
-          const variacao = data.variacoes[equipe][m.num];
+          const variacao = data.variacoes[linha][m.num];
           let varHtml = "";
           if (variacao != null) {
             const cls = variacao > 0 ? "var-up" : variacao < 0 ? "var-down" : "";
@@ -358,7 +359,7 @@ function renderPivotTable(tableEl, data) {
       const tot = row.total_ano;
       const pctAno = tot.total ? ((tot.adm / tot.total) * 100).toFixed(0) : 0;
       return `<tr>
-        <td class="equipe-name">${equipe}</td>
+        <td class="pivot-row-name">${linha}</td>
         ${cells}
         <td>${fmt(tot.total)}<span class="sub">ADM ${pctAno}%</span></td>
       </tr>`;
@@ -426,6 +427,15 @@ async function loadPivot() {
   renderPivotTable(document.getElementById("pivot-table"), data);
 }
 
+async function loadPivotPessoas() {
+  const data = await api(`/api/pivot-pessoas/${exercicioAtual}`);
+  renderPivotTable(
+    document.getElementById("pessoas-pivot-table"),
+    data,
+    "Colaborador (Nome)"
+  );
+}
+
 async function loadDivisaoPage() {
   if (!exercicioAtual || !divisaoAtual) return;
   const q = divisaoQuery(divisaoAtual);
@@ -442,15 +452,15 @@ async function loadDivisaoPage() {
   renderPivotTable(document.getElementById("div-pivot-table"), pivot);
 }
 
-async function deleteArquivo(id, nome) {
-  if (
-    !confirm(
-      `Excluir "${nome}"?\n\nOs lançamentos importados deste arquivo serão removidos do sistema.`
-    )
-  ) {
+async function deleteArquivo(id, nome, tipo) {
+  const msg =
+    tipo === "orcamento"
+      ? `Excluir o orçamento "${nome}"?\n\nOs valores orçados serão removidos. Use Upload para enviar uma nova versão.`
+      : `Excluir "${nome}"?\n\nOs lançamentos importados deste arquivo serão removidos do sistema.`;
+  if (!confirm(msg)) {
     return;
   }
-  await api(`/api/arquivos/${id}`, { method: "DELETE" });
+  await api(`/api/arquivos/${id}?tipo=${tipo}`, { method: "DELETE" });
   await loadExercicios();
   await loadDivisoes();
   await refreshAll();
@@ -460,19 +470,20 @@ async function loadArquivos() {
   const { arquivos } = await api("/api/arquivos");
   const tbody = document.querySelector("#arquivos-table tbody");
   if (!arquivos.length) {
-    tbody.innerHTML = `<tr><td colspan="6">Nenhum arquivo importado ainda.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7">Nenhum arquivo importado ainda.</td></tr>`;
     return;
   }
   tbody.innerHTML = arquivos
     .map(
       (a) => `<tr>
         <td>${a.nome}</td>
+        <td>${a.tipo === "orcamento" ? "Orçamento" : "Realizado"}</td>
         <td>${a.exercicio ?? "—"}</td>
         <td>${a.meses || "—"}</td>
         <td>${a.total_linhas}</td>
         <td>${new Date(a.importado_em).toLocaleString("pt-BR")}</td>
         <td>
-          <button type="button" class="btn danger" data-delete-id="${a.id}" data-delete-nome="${escapeHtml(a.nome)}">
+          <button type="button" class="btn danger" data-delete-id="${a.id}" data-delete-tipo="${a.tipo}" data-delete-nome="${escapeHtml(a.nome)}">
             Excluir
           </button>
         </td>
@@ -494,8 +505,9 @@ function setupArquivosTable() {
     if (!btn) return;
     const id = Number(btn.dataset.deleteId);
     const nome = btn.dataset.deleteNome;
+    const tipo = btn.dataset.deleteTipo;
     try {
-      await deleteArquivo(id, nome);
+      await deleteArquivo(id, nome, tipo);
     } catch (err) {
       alert(err.message);
     }
@@ -671,7 +683,7 @@ async function loadOrcamentoPage() {
 
 async function refreshAll() {
   if (!exercicioAtual) return;
-  await Promise.all([loadDashboard(), loadPivot(), loadArquivos()]);
+  await Promise.all([loadDashboard(), loadPivot(), loadPivotPessoas(), loadArquivos()]);
   const divisaoPanel = document.getElementById("panel-divisao");
   if (divisaoPanel.classList.contains("active")) {
     await loadDivisaoPage();

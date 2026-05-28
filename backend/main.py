@@ -2,21 +2,28 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from database import UPLOAD_DIR, Base, clear_all_data, engine, get_db, migrate_schema
-from budget_importer import import_orcamento_directory, import_orcamento_file, is_orcamento_file
+from budget_importer import (
+    _nome_normalizado,
+    delete_orcamento_arquivo,
+    import_orcamento_directory,
+    import_orcamento_file,
+    is_orcamento_file,
+)
 from importer import import_directory, import_file
-from models import Arquivo
+from models import Arquivo, OrcamentoArquivo
 from services import (
     colaboradores,
     comparativo_orcamento,
     list_arquivos,
     list_divisoes,
     list_exercicios,
+    pivot_colaboradores,
     pivot_equipes,
     resumo_divisoes_mensal,
     resumo_mensal,
@@ -37,7 +44,7 @@ async def lifespan(_: FastAPI):
     try:
         import_directory(db, EXCEL_SEED_DIR)
         import_directory(db, UPLOAD_DIR)
-        import_orcamento_directory(db, EXCEL_SEED_DIR)
+        # Orçamento: só uploads persistidos (não reimporta Excel/ a cada restart)
         import_orcamento_directory(db, UPLOAD_DIR)
     finally:
         db.close()
@@ -94,6 +101,11 @@ def api_pivot(
     return pivot_equipes(db, exercicio, divisao)
 
 
+@app.get("/api/pivot-pessoas/{exercicio}")
+def api_pivot_pessoas(exercicio: int, db: Session = Depends(get_db)):
+    return pivot_colaboradores(db, exercicio)
+
+
 @app.get("/api/colaboradores/{exercicio}")
 def api_colaboradores(
     exercicio: int, mes: int | None = None, db: Session = Depends(get_db)
@@ -106,13 +118,14 @@ async def api_upload(file: UploadFile = File(...), db: Session = Depends(get_db)
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Envie um arquivo Excel (.xlsx)")
 
-    dest = UPLOAD_DIR / Path(file.filename).name
+    nome = Path(file.filename).name
+    dest = UPLOAD_DIR / nome
     content = await file.read()
     dest.write_bytes(content)
 
     try:
-        if is_orcamento_file(dest):
-            arquivo = import_orcamento_file(db, dest)
+        if is_orcamento_file(Path(nome)) or is_orcamento_file(dest):
+            arquivo = import_orcamento_file(db, dest, force=True)
             return {
                 "ok": True,
                 "tipo": "orcamento",
@@ -123,20 +136,22 @@ async def api_upload(file: UploadFile = File(...), db: Session = Depends(get_db)
                 },
             }
         arquivo = import_file(db, dest)
+        return {
+            "ok": True,
+            "tipo": "realizado",
+            "arquivo": {
+                "nome": arquivo.nome,
+                "exercicio": arquivo.exercicio,
+                "meses": arquivo.meses,
+                "total_linhas": arquivo.total_linhas,
+            },
+        }
     except ValueError as exc:
         dest.unlink(missing_ok=True)
         raise HTTPException(400, str(exc)) from exc
-
-    return {
-        "ok": True,
-        "tipo": "realizado",
-        "arquivo": {
-            "nome": arquivo.nome,
-            "exercicio": arquivo.exercicio,
-            "meses": arquivo.meses,
-            "total_linhas": arquivo.total_linhas,
-        },
-    }
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(500, f"Erro ao importar: {exc}") from exc
 
 
 @app.post("/api/reimport")
@@ -158,8 +173,27 @@ def api_reimport(db: Session = Depends(get_db)):
 
 
 @app.delete("/api/arquivos/{arquivo_id}")
-def api_delete_arquivo(arquivo_id: int, db: Session = Depends(get_db)):
+def api_delete_arquivo(
+    arquivo_id: int,
+    tipo: str = Query("realizado", pattern="^(realizado|orcamento)$"),
+    db: Session = Depends(get_db),
+):
     from models import Lancamento
+
+    if tipo == "orcamento":
+        arquivo = db.get(OrcamentoArquivo, arquivo_id)
+        if not arquivo:
+            raise HTTPException(404, "Arquivo de orçamento não encontrado")
+        nome = arquivo.nome
+        delete_orcamento_arquivo(db, arquivo_id)
+        alvo = _nome_normalizado(Path(nome))
+        for path in UPLOAD_DIR.glob("*.xlsx"):
+            if is_orcamento_file(path) and _nome_normalizado(path) == alvo:
+                path.unlink(missing_ok=True)
+        for path in UPLOAD_DIR.glob("*.XLSX"):
+            if is_orcamento_file(path) and _nome_normalizado(path) == alvo:
+                path.unlink(missing_ok=True)
+        return {"ok": True, "tipo": "orcamento"}
 
     arquivo = db.get(Arquivo, arquivo_id)
     if not arquivo:
@@ -172,4 +206,4 @@ def api_delete_arquivo(arquivo_id: int, db: Session = Depends(get_db)):
     if upload_path.is_file():
         upload_path.unlink()
 
-    return {"ok": True}
+    return {"ok": True, "tipo": "realizado"}
