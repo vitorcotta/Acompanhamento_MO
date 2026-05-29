@@ -32,6 +32,7 @@ Abra no navegador: **http://localhost:8000**
 - **Dashboard**: gráficos e cards mensais (ADM %, total, variação)
 - **Por equipe**: visão tipo pivot por linha de despesa
 - **Por pessoa**: mesma tabela pivot, agrupada por **Nome** (colaborador)
+- **Comparar meses**: escolha 2 ou 3 meses e compare por equipe, pessoa ou divisão
 - **Por divisão**: mesmo acompanhamento filtrado pela coluna Divisão
 - **Orçado vs realizado**: compara planilha `Orçamento.xlsx` (Jan–Dez) com o realizado, pela chave **Despesa + Divisão**
 - **Upload**: envie o Excel do mês; períodos já existentes são substituídos pelos dados do novo arquivo

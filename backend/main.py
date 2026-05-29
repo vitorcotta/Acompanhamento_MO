@@ -20,9 +20,11 @@ from models import Arquivo, OrcamentoArquivo
 from services import (
     colaboradores,
     comparativo_orcamento,
+    comparar_meses,
     list_arquivos,
     list_divisoes,
     list_exercicios,
+    list_meses,
     pivot_colaboradores,
     pivot_equipes,
     resumo_divisoes_mensal,
@@ -92,6 +94,28 @@ def api_orcamento(
     exercicio: int, divisao: str | None = None, db: Session = Depends(get_db)
 ):
     return comparativo_orcamento(db, exercicio, divisao)
+
+
+@app.get("/api/meses/{exercicio}")
+def api_meses(exercicio: int, db: Session = Depends(get_db)):
+    return {"meses": list_meses(db, exercicio)}
+
+
+@app.get("/api/comparar/{exercicio}")
+def api_comparar(
+    exercicio: int,
+    meses: str = Query(..., description="Meses separados por vírgula, ex: 1,2 ou 3,4,5"),
+    dimensao: str = Query("equipe", pattern="^(equipe|pessoa|divisao)$"),
+    db: Session = Depends(get_db),
+):
+    try:
+        mes_list = [int(m.strip()) for m in meses.split(",") if m.strip()]
+    except ValueError as exc:
+        raise HTTPException(400, "Meses inválidos") from exc
+    try:
+        return comparar_meses(db, exercicio, mes_list, dimensao)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.get("/api/pivot/{exercicio}")

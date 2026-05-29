@@ -197,6 +197,129 @@ def _build_pivot(rows, label_fn) -> dict:
     }
 
 
+def list_meses(db: Session, exercicio: int) -> list[dict]:
+    rows = (
+        db.query(Lancamento.mes)
+        .filter(Lancamento.exercicio == exercicio)
+        .distinct()
+        .order_by(Lancamento.mes)
+        .all()
+    )
+    return [{"num": r[0], "label": MESES_NOME.get(r[0], str(r[0]))} for r in rows]
+
+
+def comparar_meses(
+    db: Session, exercicio: int, meses: list[int], dimensao: str
+) -> dict:
+    if dimensao not in ("equipe", "pessoa", "divisao"):
+        raise ValueError("dimensao deve ser equipe, pessoa ou divisao")
+    meses_unicos = list(dict.fromkeys(meses))
+    if len(meses_unicos) < 2 or len(meses_unicos) > 3:
+        raise ValueError("Selecione 2 ou 3 meses distintos")
+
+    dim_map = {
+        "equipe": (Lancamento.equipe, Lancamento.equipe),
+        "pessoa": (Lancamento.colaborador, Lancamento.colaborador),
+        "divisao": (Lancamento.divisao, Lancamento.divisao),
+    }
+    col, group_col = dim_map[dimensao]
+
+    q = db.query(
+        group_col.label("rotulo"),
+        Lancamento.mes,
+        Lancamento.is_adm,
+        func.sum(Lancamento.valor).label("valor"),
+    ).filter(
+        Lancamento.exercicio == exercicio,
+        Lancamento.mes.in_(meses_unicos),
+    )
+    if dimensao == "pessoa":
+        q = q.filter(Lancamento.colaborador != "")
+    rows = q.group_by(group_col, Lancamento.mes, Lancamento.is_adm).all()
+
+    rotulos = sorted({r.rotulo for r in rows})
+    grid: dict[str, dict[int, dict]] = {
+        r: {m: {"adm": 0.0, "time": 0.0, "total": 0.0} for m in meses_unicos}
+        for r in rotulos
+    }
+
+    for row in rows:
+        bucket = "adm" if row.is_adm else "time"
+        cell = grid[row.rotulo][row.mes]
+        cell[bucket] += row.valor
+        cell["total"] += row.valor
+
+    linhas = []
+    for rotulo in rotulos:
+        meses_data = {}
+        for m in meses_unicos:
+            c = grid[rotulo][m]
+            total = round(c["total"], 2)
+            pct_adm = round(c["adm"] / total * 100, 1) if total else 0.0
+            meses_data[str(m)] = {
+                "total": total,
+                "adm": round(c["adm"], 2),
+                "pct_adm": pct_adm,
+            }
+
+        deltas = []
+        for i in range(1, len(meses_unicos)):
+            prev_m = meses_unicos[i - 1]
+            cur_m = meses_unicos[i]
+            prev_v = meses_data[str(prev_m)]["total"]
+            cur_v = meses_data[str(cur_m)]["total"]
+            pct = round((cur_v - prev_v) / prev_v * 100, 1) if prev_v else None
+            deltas.append(
+                {
+                    "de": prev_m,
+                    "de_label": MESES_NOME.get(prev_m, str(prev_m)),
+                    "para": cur_m,
+                    "para_label": MESES_NOME.get(cur_m, str(cur_m)),
+                    "valor_de": prev_v,
+                    "valor_para": cur_v,
+                    "delta_abs": round(cur_v - prev_v, 2),
+                    "delta_pct": pct,
+                }
+            )
+
+        linhas.append({"rotulo": rotulo, "meses": meses_data, "deltas": deltas})
+
+    def _sort_key(linha: dict) -> tuple:
+        if not linha["deltas"]:
+            return (1, 0.0, 0.0, linha["rotulo"].lower())
+        pct = linha["deltas"][0].get("delta_pct")
+        if pct is None:
+            return (1, 0.0, 0.0, linha["rotulo"].lower())
+        return (0, -abs(pct), -pct, linha["rotulo"].lower())
+
+    linhas.sort(key=_sort_key)
+
+    totais_por_mes = {}
+    for m in meses_unicos:
+        t = sum(grid[r][m]["total"] for r in rotulos)
+        a = sum(grid[r][m]["adm"] for r in rotulos)
+        totais_por_mes[str(m)] = {
+            "total": round(t, 2),
+            "pct_adm": round(a / t * 100, 1) if t else 0.0,
+        }
+
+    dim_labels = {
+        "equipe": "Equipe (Descrição Despesa)",
+        "pessoa": "Colaborador (Nome)",
+        "divisao": "Divisão",
+    }
+
+    return {
+        "dimensao": dimensao,
+        "dimensao_label": dim_labels[dimensao],
+        "meses": [
+            {"num": m, "label": MESES_NOME.get(m, str(m))} for m in meses_unicos
+        ],
+        "linhas": linhas,
+        "totais": totais_por_mes,
+    }
+
+
 def pivot_equipes(db: Session, exercicio: int, divisao: str | None = None) -> dict:
     q = db.query(
         Lancamento.equipe,

@@ -28,6 +28,7 @@
     <button type="button" class="tab" data-tab="pivot">Por equipe</button>
     <button type="button" class="tab" data-tab="pessoas">Por pessoa</button>
     <button type="button" class="tab" data-tab="divisao">Por divisão</button>
+    <button type="button" class="tab" data-tab="comparar">Comparar meses</button>
     <button type="button" class="tab" data-tab="orcamento">Orçado vs realizado</button>
     <button type="button" class="tab" data-tab="upload">Upload</button>
     <button type="button" class="tab" data-tab="arquivos">Arquivos</button>
@@ -102,6 +103,40 @@
       <h3 class="section-title">Por equipe na divisão</h3>
       <div class="table-scroll">
         <table id="div-pivot-table" class="pivot-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="panel-comparar" class="panel">
+      <div class="panel-toolbar panel-toolbar--wrap">
+        <label class="select-wrap">
+          1º mês
+          <select id="cmp-mes-1"></select>
+        </label>
+        <label class="select-wrap">
+          2º mês
+          <select id="cmp-mes-2"></select>
+        </label>
+        <label class="check-wrap">
+          <input type="checkbox" id="cmp-terceiro" />
+          Incluir 3º mês
+        </label>
+        <label class="select-wrap" id="cmp-mes-3-wrap">
+          3º mês
+          <select id="cmp-mes-3" disabled></select>
+        </label>
+      </div>
+      <div class="segmented" role="tablist" aria-label="Agrupar por">
+        <button type="button" class="segmented-btn active" data-cmp-dim="equipe">Por equipe</button>
+        <button type="button" class="segmented-btn" data-cmp-dim="pessoa">Por pessoa</button>
+        <button type="button" class="segmented-btn" data-cmp-dim="divisao">Por divisão</button>
+      </div>
+      <p class="hint">Compare valores realizados entre os meses escolhidos. A tabela é ordenada automaticamente pela maior variação % entre o <strong>1º e o 2º mês</strong> selecionados.</p>
+      <div class="cards" id="cmp-totais"></div>
+      <div class="table-scroll">
+        <table id="cmp-table" class="pivot-table cmp-table">
           <thead></thead>
           <tbody></tbody>
         </table>

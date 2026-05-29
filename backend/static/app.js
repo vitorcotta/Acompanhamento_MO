@@ -31,6 +31,8 @@ let orcCharts = {};
 let exercicioAtual = null;
 let divisaoAtual = null;
 let orcDivisaoFiltro = "";
+let cmpDimensao = "equipe";
+let mesesDisponiveis = [];
 
 async function api(path, options = {}) {
   const res = await fetch(path, options);
@@ -386,6 +388,8 @@ async function loadExercicios() {
   sel.onchange = async () => {
     exercicioAtual = Number(sel.value);
     await loadDivisoes();
+    await loadOrcDivisoes();
+    await loadMesesComparar();
     await refreshAll();
   };
 }
@@ -434,6 +438,211 @@ async function loadPivotPessoas() {
     data,
     "Colaborador (Nome)"
   );
+}
+
+function fillMesSelect(selectId, meses, selected) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = meses
+    .map((m) => `<option value="${m.num}">${m.label}</option>`)
+    .join("");
+  if (selected != null) sel.value = String(selected);
+}
+
+async function loadMesesComparar() {
+  const ids = ["cmp-mes-1", "cmp-mes-2", "cmp-mes-3"];
+  if (!exercicioAtual) {
+    ids.forEach((id) => {
+      document.getElementById(id).innerHTML = "";
+    });
+    mesesDisponiveis = [];
+    return;
+  }
+  const { meses } = await api(`/api/meses/${exercicioAtual}`);
+  mesesDisponiveis = meses;
+  if (meses.length < 2) {
+    ids.forEach((id) => {
+      document.getElementById(id).innerHTML = "<option>—</option>";
+    });
+    return;
+  }
+  fillMesSelect("cmp-mes-1", meses, meses[0].num);
+  fillMesSelect("cmp-mes-2", meses, meses[Math.min(1, meses.length - 1)].num);
+  fillMesSelect("cmp-mes-3", meses, meses[Math.min(2, meses.length - 1)].num);
+}
+
+function getCmpMesesSelecionados() {
+  const ler = (id) => {
+    const v = parseInt(document.getElementById(id).value, 10);
+    return Number.isFinite(v) ? v : null;
+  };
+  const meses = [ler("cmp-mes-1"), ler("cmp-mes-2")].filter((m) => m != null);
+  if (document.getElementById("cmp-terceiro").checked) {
+    const m3 = ler("cmp-mes-3");
+    if (m3 != null) meses.push(m3);
+  }
+  return meses;
+}
+
+function validarMesesCmp(mesesSel) {
+  if (mesesSel.length < 2) {
+    return { ok: false, msg: "Selecione pelo menos 2 meses válidos." };
+  }
+  if (new Set(mesesSel).size !== mesesSel.length) {
+    return { ok: false, msg: "Selecione meses distintos." };
+  }
+  return { ok: true };
+}
+
+function deltaClass(pct) {
+  if (pct == null) return "";
+  if (pct > 0) return "var-up";
+  if (pct < 0) return "var-down";
+  return "";
+}
+
+function sortLinhasPorDelta(linhas) {
+  return [...linhas].sort((a, b) => {
+    const da = a.deltas[0]?.delta_pct;
+    const db = b.deltas[0]?.delta_pct;
+    if (da == null && db == null) return a.rotulo.localeCompare(b.rotulo, "pt-BR");
+    if (da == null) return 1;
+    if (db == null) return -1;
+    const byAbs = Math.abs(db) - Math.abs(da);
+    if (byAbs !== 0) return byAbs;
+    return db - da;
+  });
+}
+
+async function loadCompararPage() {
+  const table = document.getElementById("cmp-table");
+  const thead = table.querySelector("thead");
+  const tbody = table.querySelector("tbody");
+  const cards = document.getElementById("cmp-totais");
+
+  if (!exercicioAtual || mesesDisponiveis.length < 2) {
+    thead.innerHTML = "";
+    tbody.innerHTML = `<tr><td colspan="4">Importe pelo menos 2 meses de realizado.</td></tr>`;
+    cards.innerHTML = "";
+    return;
+  }
+
+  const mesesSel = getCmpMesesSelecionados();
+  const validacao = validarMesesCmp(mesesSel);
+  if (!validacao.ok) {
+    thead.innerHTML = "";
+    tbody.innerHTML = `<tr><td colspan="4">${validacao.msg}</td></tr>`;
+    cards.innerHTML = "";
+    return;
+  }
+
+  let data;
+  try {
+    data = await api(
+      `/api/comparar/${exercicioAtual}?meses=${mesesSel.join(",")}&dimensao=${cmpDimensao}`
+    );
+  } catch (e) {
+    thead.innerHTML = "";
+    tbody.innerHTML = `<tr><td colspan="4">${e.message}</td></tr>`;
+    cards.innerHTML = "";
+    return;
+  }
+
+  try {
+
+    table.classList.toggle("pivot-table--pessoas", cmpDimensao === "pessoa");
+
+    cards.innerHTML = data.meses
+    .map((m, i) => {
+      const t = data.totais[String(m.num)];
+      let deltaHtml = "";
+      if (i > 0) {
+        const prev = data.meses[i - 1];
+        const prevT = data.totais[String(prev.num)].total;
+        const pct = prevT ? ((t.total - prevT) / prevT) * 100 : null;
+        if (pct != null) {
+          deltaHtml = `<div class="meta ${deltaClass(pct)}">${pct > 0 ? "+" : ""}${pct.toFixed(1)}% vs ${prev.label}</div>`;
+        }
+      }
+      return `<div class="card">
+        <div class="label">${m.label}</div>
+        <div class="value">${fmt(t.total)}</div>
+        <div class="meta">ADM ${t.pct_adm}%</div>
+        ${deltaHtml}
+      </div>`;
+    })
+    .join("");
+
+  const monthCols = data.meses
+    .map((m) => `<th>${m.label}<br><span class="sub">realizado / ADM%</span></th>`)
+    .join("");
+  const deltaCols = data.meses
+    .slice(1)
+    .map((m, i) => {
+      const prev = data.meses[i];
+      const sortMark =
+        i === 0 ? '<br><span class="sub">ordenado por |Δ|</span>' : "";
+      return `<th class="delta-col">Δ ${m.label} vs ${prev.label}${sortMark}<br><span class="sub">% e valor</span></th>`;
+    })
+    .join("");
+
+  thead.innerHTML = `<tr><th>${data.dimensao_label}</th>${monthCols}${deltaCols}</tr>`;
+
+  const linhasOrdenadas = sortLinhasPorDelta(data.linhas);
+
+  tbody.innerHTML = linhasOrdenadas
+    .map((linha) => {
+      const monthCells = data.meses
+        .map((m) => {
+          const c = linha.meses[String(m.num)];
+          return `<td>${fmt(c.total)}<span class="sub">ADM ${c.pct_adm}%</span></td>`;
+        })
+        .join("");
+      const deltaCells = linha.deltas
+        .map(
+          (d) => `<td class="delta-col">
+            <span class="delta-pct ${deltaClass(d.delta_pct)}">${d.delta_pct != null ? `${d.delta_pct > 0 ? "+" : ""}${d.delta_pct}%` : "—"}</span>
+            <span class="sub">${fmt(d.delta_abs)}</span>
+          </td>`
+        )
+        .join("");
+      return `<tr><td class="pivot-row-name">${linha.rotulo}</td>${monthCells}${deltaCells}</tr>`;
+    })
+    .join("");
+
+  if (!linhasOrdenadas.length) {
+    tbody.innerHTML = `<tr><td colspan="${1 + data.meses.length + data.meses.length - 1}">Sem dados nos meses selecionados.</td></tr>`;
+  }
+
+  let tfoot = table.querySelector("tfoot");
+  if (!tfoot) {
+    tfoot = document.createElement("tfoot");
+    table.appendChild(tfoot);
+  }
+  const totalMonthCells = data.meses
+    .map((m) => {
+      const t = data.totais[String(m.num)];
+      return `<td>${fmt(t.total)}<span class="sub">ADM ${t.pct_adm}%</span></td>`;
+    })
+    .join("");
+  const totalDeltaCells = data.meses
+    .slice(1)
+    .map((m, i) => {
+      const prev = data.meses[i];
+      const a = data.totais[String(prev.num)].total;
+      const b = data.totais[String(m.num)].total;
+      const pct = a ? ((b - a) / a) * 100 : null;
+      return `<td class="delta-col">
+        <span class="delta-pct ${deltaClass(pct)}">${pct != null ? `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%` : "—"}</span>
+        <span class="sub">${fmt(b - a)}</span>
+      </td>`;
+    })
+    .join("");
+  tfoot.innerHTML = `<tr><td>Total geral</td>${totalMonthCells}${totalDeltaCells}</tr>`;
+  } catch (e) {
+    thead.innerHTML = "";
+    tbody.innerHTML = `<tr><td colspan="4">Erro ao exibir: ${e.message}</td></tr>`;
+    cards.innerHTML = "";
+  }
 }
 
 async function loadDivisaoPage() {
@@ -692,6 +901,10 @@ async function refreshAll() {
   if (orcPanel.classList.contains("active")) {
     await loadOrcamentoPage();
   }
+  const cmpPanel = document.getElementById("panel-comparar");
+  if (cmpPanel.classList.contains("active")) {
+    await loadCompararPage();
+  }
 }
 
 function setupTabs() {
@@ -708,6 +921,34 @@ function setupTabs() {
       if (tab.dataset.tab === "orcamento") {
         await loadOrcamentoPage();
       }
+      if (tab.dataset.tab === "comparar") {
+        await loadCompararPage();
+      }
+    });
+  });
+}
+
+function setupComparar() {
+  const terceiro = document.getElementById("cmp-terceiro");
+  const wrap3 = document.getElementById("cmp-mes-3-wrap");
+  const sel3 = document.getElementById("cmp-mes-3");
+
+  terceiro.addEventListener("change", () => {
+    sel3.disabled = !terceiro.checked;
+    wrap3.classList.toggle("is-on", terceiro.checked);
+    loadCompararPage();
+  });
+
+  ["cmp-mes-1", "cmp-mes-2", "cmp-mes-3"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", () => loadCompararPage());
+  });
+
+  document.querySelectorAll("[data-cmp-dim]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-cmp-dim]").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      cmpDimensao = btn.dataset.cmpDim;
+      loadCompararPage();
     });
   });
 }
@@ -748,8 +989,8 @@ function setupUpload() {
           : `realizado · meses ${res.arquivo.meses}`;
       showStatus(`Importado: ${res.arquivo.nome} (${detalhe})`, true);
       await loadExercicios();
-      await loadDivisoes();
       await loadOrcDivisoes();
+      await loadMesesComparar();
       await refreshAll();
     } catch (e) {
       showStatus(e.message, false);
@@ -777,6 +1018,7 @@ document.getElementById("btn-reimport").addEventListener("click", async () => {
   await loadExercicios();
   await loadDivisoes();
   await loadOrcDivisoes();
+  await loadMesesComparar();
   await refreshAll();
 });
 
@@ -784,11 +1026,13 @@ setupTabs();
 setupUpload();
 setupDivisaoFilter();
 setupOrcamentoFilter();
+setupComparar();
 setupArquivosTable();
 
 (async () => {
   await loadExercicios();
   await loadDivisoes();
   await loadOrcDivisoes();
+  await loadMesesComparar();
   await refreshAll();
 })();
