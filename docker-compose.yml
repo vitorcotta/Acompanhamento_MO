@@ -1,3 +1,19 @@
+#services:
+#  app:
+#    build: .
+#    ports:
+#      - "8000:8000"
+#    volumes:
+#      - ./Excel:/seed/Excel:ro
+#      - mo_data:/data
+#    environment:
+#      DATA_DIR: /data
+#      EXCEL_SEED_DIR: /seed/Excel
+#    restart: unless-stopped
+
+#volumes:
+#  mo_data:
+
 services:
   app:
     build: .
@@ -9,7 +25,16 @@ services:
     environment:
       DATA_DIR: /data
       EXCEL_SEED_DIR: /seed/Excel
+      VIRTUAL_HOST: mo.localhost      # escolha o nome que quiser
+      VIRTUAL_PORT: 8000               # porta interna do container
+    networks:
+      - proxy
     restart: unless-stopped
 
 volumes:
   mo_data:
+
+networks:
+  proxy:
+    external: true
+    name: proxy
