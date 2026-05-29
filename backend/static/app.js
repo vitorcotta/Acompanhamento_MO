@@ -507,8 +507,6 @@ function sortLinhasPorDelta(linhas) {
     if (da == null && db == null) return a.rotulo.localeCompare(b.rotulo, "pt-BR");
     if (da == null) return 1;
     if (db == null) return -1;
-    const byAbs = Math.abs(db) - Math.abs(da);
-    if (byAbs !== 0) return byAbs;
     return db - da;
   });
 }
@@ -580,7 +578,7 @@ async function loadCompararPage() {
     .map((m, i) => {
       const prev = data.meses[i];
       const sortMark =
-        i === 0 ? '<br><span class="sub">ordenado por |Δ|</span>' : "";
+        i === 0 ? '<br><span class="sub">↓ maior Δ% primeiro</span>' : "";
       return `<th class="delta-col">Δ ${m.label} vs ${prev.label}${sortMark}<br><span class="sub">% e valor</span></th>`;
     })
     .join("");

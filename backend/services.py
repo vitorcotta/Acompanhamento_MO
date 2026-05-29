@@ -286,11 +286,12 @@ def comparar_meses(
 
     def _sort_key(linha: dict) -> tuple:
         if not linha["deltas"]:
-            return (1, 0.0, 0.0, linha["rotulo"].lower())
+            return (1, 0.0, linha["rotulo"].lower())
         pct = linha["deltas"][0].get("delta_pct")
         if pct is None:
-            return (1, 0.0, 0.0, linha["rotulo"].lower())
-        return (0, -abs(pct), -pct, linha["rotulo"].lower())
+            return (1, 0.0, linha["rotulo"].lower())
+        # Maior Δ% primeiro: aumentos no topo, reduções embaixo
+        return (0, -pct, linha["rotulo"].lower())
 
     linhas.sort(key=_sort_key)
 
