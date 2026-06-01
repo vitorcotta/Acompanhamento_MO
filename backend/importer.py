@@ -1,6 +1,9 @@
 import hashlib
+import json
 import re
+from datetime import date, datetime, time
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -14,6 +17,9 @@ COLUMN_ALIASES = {
     "descrição despesa": "equipe",
     "nome": "colaborador",
     "valor realizado rateio": "valor",
+    "valor contábil real.": "valor",
+    "valor contabil real.": "valor",
+    "valor contábil real": "valor",
     "periodo contabil": "mes",
     "período contábil": "mes",
     "sistema de origem": "origem",
@@ -33,6 +39,37 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=mapping)
 
 
+def _cell_to_json(val: Any) -> Any:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ""
+    if isinstance(val, pd.Timestamp):
+        return val.isoformat()
+    if isinstance(val, (datetime, date, time)):
+        return val.isoformat()
+    if isinstance(val, float) and val == int(val):
+        return int(val)
+    if hasattr(val, "item"):
+        try:
+            return val.item()
+        except (ValueError, AttributeError):
+            pass
+    return val
+
+
+def _row_original_dict(df_raw: pd.DataFrame, idx: int) -> dict[str, Any]:
+    row = df_raw.iloc[idx]
+    return {str(col).strip(): _cell_to_json(row[col]) for col in df_raw.columns}
+
+
+def _lookup_field(row_dict: dict[str, Any], *aliases: str) -> Any:
+    lower = {str(k).lower().strip(): v for k, v in row_dict.items()}
+    for alias in aliases:
+        key = alias.lower().strip()
+        if key in lower:
+            return lower[key]
+    return None
+
+
 def _file_hash(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -41,15 +78,21 @@ def _file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def parse_excel(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path, sheet_name=0)
-    df = _normalize_columns(df)
+def parse_excel(path: Path) -> tuple[list[str], list[dict]]:
+    """Retorna ordem das colunas originais e linhas prontas para gravar no banco."""
+    df_raw = pd.read_excel(path, sheet_name=0)
+    colunas = [str(c).strip() for c in df_raw.columns]
+    df = _normalize_columns(df_raw.copy())
+
     required = {"equipe", "colaborador", "valor", "mes", "origem"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(
-            f"Colunas obrigatórias ausentes em {path.name}: {', '.join(sorted(missing))}"
+            f"Colunas obrigatórias ausentes em {path.name}: {', '.join(sorted(missing))}. "
+            f"Confira se o arquivo tem valor (ex.: Valor realizado rateio ou Valor contábil real.), "
+            f"Nome, Descrição Despesa, Período contábil e Sistema de origem."
         )
+
     if "exercicio" not in df.columns:
         df["exercicio"] = None
     if "divisao" not in df.columns:
@@ -57,25 +100,46 @@ def parse_excel(path: Path) -> pd.DataFrame:
     if "despesa" not in df.columns:
         df["despesa"] = ""
 
-    df = df[list(required | {"exercicio", "divisao", "despesa"})].copy()
-    df["equipe"] = df["equipe"].fillna("(sem equipe)").astype(str).str.strip()
-    df["divisao"] = df["divisao"].fillna("(sem divisão)").astype(str).str.strip()
-    df["despesa"] = df["despesa"].fillna("").astype(str).str.strip()
-    df["colaborador"] = df["colaborador"].fillna("").astype(str).str.strip()
-    df["origem"] = df["origem"].fillna("").astype(str).str.strip().str.upper()
-    df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
-    df["mes"] = pd.to_numeric(df["mes"], errors="coerce").astype("Int64")
-    df["exercicio"] = pd.to_numeric(df["exercicio"], errors="coerce")
-    df = df.dropna(subset=["mes"])
-    df["mes"] = df["mes"].astype(int)
     if df["exercicio"].notna().any():
         default_year = int(df["exercicio"].dropna().iloc[0])
     else:
         year_match = re.search(r"(20\d{2})", path.stem)
         default_year = int(year_match.group(1)) if year_match else 2026
-    df["exercicio"] = int(default_year)
-    df["is_adm"] = df["origem"] == "ADM"
-    return df
+
+    linhas: list[dict] = []
+    for idx in range(len(df)):
+        row_norm = df.iloc[idx]
+        mes_val = pd.to_numeric(row_norm["mes"], errors="coerce")
+        if pd.isna(mes_val):
+            continue
+
+        orig = _row_original_dict(df_raw, idx)
+        equipe = str(row_norm.get("equipe", "") or "").strip() or "(sem equipe)"
+        divisao = str(row_norm.get("divisao", "") or "").strip() or "(sem divisão)"
+        despesa = str(row_norm.get("despesa", "") or "").strip()
+        colaborador = str(row_norm.get("colaborador", "") or "").strip()
+        origem = str(row_norm.get("origem", "") or "").strip().upper()
+        valor = float(pd.to_numeric(row_norm["valor"], errors="coerce") or 0.0)
+
+        linhas.append(
+            {
+                "exercicio": default_year,
+                "mes": int(mes_val),
+                "despesa": despesa,
+                "equipe": equipe,
+                "divisao": divisao,
+                "colaborador": colaborador,
+                "valor": valor,
+                "origem": origem,
+                "is_adm": origem == "ADM",
+                "dados_linha": json.dumps(orig, ensure_ascii=False),
+            }
+        )
+
+    if not linhas:
+        raise ValueError(f"Nenhuma linha válida em {path.name}.")
+
+    return colunas, linhas
 
 
 def import_file(db: Session, path: Path, *, replace_periods: bool = True) -> Arquivo:
@@ -88,9 +152,9 @@ def import_file(db: Session, path: Path, *, replace_periods: bool = True) -> Arq
     if existing and existing.hash_conteudo == content_hash:
         return existing
 
-    df = parse_excel(path)
-    exercicio = int(df["exercicio"].iloc[0])
-    meses = sorted(df["mes"].unique().tolist())
+    colunas, linhas = parse_excel(path)
+    exercicio = int(linhas[0]["exercicio"])
+    meses = sorted({ln["mes"] for ln in linhas})
     meses_str = ",".join(str(m) for m in meses)
 
     if replace_periods:
@@ -112,7 +176,8 @@ def import_file(db: Session, path: Path, *, replace_periods: bool = True) -> Arq
         hash_conteudo=content_hash,
         exercicio=exercicio,
         meses=meses_str,
-        total_linhas=len(df),
+        total_linhas=len(linhas),
+        colunas_json=json.dumps(colunas, ensure_ascii=False),
     )
     db.add(arquivo)
     db.flush()
@@ -120,17 +185,18 @@ def import_file(db: Session, path: Path, *, replace_periods: bool = True) -> Arq
     registros = [
         Lancamento(
             arquivo_id=arquivo.id,
-            exercicio=int(row.exercicio),
-            mes=int(row.mes),
-            despesa=row.despesa,
-            equipe=row.equipe,
-            divisao=row.divisao,
-            colaborador=row.colaborador,
-            valor=float(row.valor),
-            origem=row.origem,
-            is_adm=bool(row.is_adm),
+            exercicio=ln["exercicio"],
+            mes=ln["mes"],
+            despesa=ln["despesa"],
+            equipe=ln["equipe"],
+            divisao=ln["divisao"],
+            colaborador=ln["colaborador"],
+            valor=ln["valor"],
+            origem=ln["origem"],
+            is_adm=ln["is_adm"],
+            dados_linha=ln["dados_linha"],
         )
-        for row in df.itertuples(index=False)
+        for ln in linhas
     ]
     db.bulk_save_objects(registros)
     db.commit()

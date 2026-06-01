@@ -31,6 +31,7 @@
     <button type="button" class="tab" data-tab="comparar">Comparar meses</button>
     <button type="button" class="tab" data-tab="orcamento">Orçado vs realizado</button>
     <button type="button" class="tab" data-tab="orcamento-equipe">Orçado por equipe</button>
+    <button type="button" class="tab" data-tab="simulacao">Simular realocação</button>
     <button type="button" class="tab" data-tab="upload">Upload</button>
     <button type="button" class="tab" data-tab="arquivos">Arquivos</button>
   </nav>
@@ -191,6 +192,68 @@
       <div class="cards" id="orc-eq-cards"></div>
       <div id="orc-eq-blocks" class="orc-eq-blocks"></div>
       <p id="orc-eq-empty" class="hint hidden">Nenhum orçamento para este mês. Importe a planilha <strong>ORÇAMENTO … MÊS A MÊS</strong> e clique em Reimportar.</p>
+    </section>
+
+    <section id="panel-simulacao" class="panel">
+      <div class="panel-toolbar panel-toolbar--wrap">
+        <label class="select-wrap">
+          Mês
+          <select id="sim-mes"></select>
+        </label>
+        <label class="select-wrap">
+          Divisão
+          <select id="sim-divisao-filtro">
+            <option value="">Todas</option>
+          </select>
+        </label>
+        <label class="select-wrap">
+          Equipe
+          <select id="sim-equipe-filtro">
+            <option value="">Todas</option>
+          </select>
+        </label>
+        <label class="select-wrap sim-busca-wrap">
+          Buscar
+          <input type="search" id="sim-busca" placeholder="Colaborador, equipe ou despesa…" />
+        </label>
+        <label class="select-wrap">
+          Destino em lote
+          <select id="sim-destino-lote" disabled>
+            <option value="">—</option>
+          </select>
+        </label>
+        <button type="button" id="sim-aplicar-lote" class="btn secondary" disabled>Aplicar à seleção</button>
+      </div>
+      <p class="hint">Compare <strong>orçado × realizado × simulado</strong> por equipe e divisão antes de realocar. Ajustes ficam só nesta tela (navegador), sem mudar o banco. O Excel exportado traz <strong>Nova Despesa</strong> e <strong>Nova Divisão</strong> + todas as colunas do realizado (só linhas alteradas).</p>
+      <p id="sim-reimport-aviso" class="hint hidden"></p>
+      <div class="sim-actions">
+        <span id="sim-contador" class="sim-contador">0 alteração(ões) pendente(s)</span>
+        <button type="button" id="sim-limpar" class="btn secondary" disabled>Limpar simulação</button>
+        <button type="button" id="sim-exportar" class="btn" disabled>Exportar para financeiro</button>
+      </div>
+      <h3 class="section-title">Orçado vs realizado vs simulado (equipe · divisão)</h3>
+      <p id="sim-orc-empty" class="hint hidden">Sem orçamento para este mês — importe a planilha mês a mês para comparar.</p>
+      <div class="cards" id="sim-painel-cards"></div>
+      <div id="sim-painel-blocks" class="orc-eq-blocks"></div>
+      <h3 class="section-title">Linhas do mês (realocação)</h3>
+      <p id="sim-linhas-aviso" class="hint hidden"></p>
+      <div class="table-scroll sim-linhas-wrap">
+        <table id="sim-linhas-table" class="pivot-table sim-linhas-table">
+          <thead>
+            <tr>
+              <th class="sim-check-col"><input type="checkbox" id="sim-check-all" title="Selecionar visíveis" /></th>
+              <th>Colaborador</th>
+              <th>Equipe</th>
+              <th>Despesa</th>
+              <th>Divisão</th>
+              <th class="num">Realizado</th>
+              <th>Destino (despesa · equipe · divisão)</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="panel-upload" class="panel">

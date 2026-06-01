@@ -36,6 +36,7 @@ Abra no navegador: **http://localhost:8000**
 - **Por divisão**: mesmo acompanhamento filtrado pela coluna Divisão
 - **Orçado vs realizado**: compara planilha de orçamento (Jan–Dez) com o realizado, pela chave **Despesa + Divisão** (visão anual)
 - **Orçado por equipe**: no mês escolhido, orçado vs realizado por **equipe + divisão** (Δ em R$ e %), com filtro de divisão
+- **Simular realocação**: altere destino linha a linha sem mudar o banco; exporte Excel só com linhas alteradas (`Nova Despesa`, `Nova Divisão` + **todas** as colunas do realizado mensal original)
 - **Upload**: envie o Excel do mês; períodos já existentes são substituídos pelos dados do novo arquivo
 - **Arquivos**: histórico do que foi importado
 

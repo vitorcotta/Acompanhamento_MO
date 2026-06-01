@@ -33,6 +33,13 @@ let divisaoAtual = null;
 let orcDivisaoFiltro = "";
 let orcEqDivisaoFiltro = "";
 let cmpDimensao = "equipe";
+let simLinhas = [];
+let simLinhasMes = [];
+let simDestinos = [];
+let simAjustes = {};
+let simBuscaTimer = null;
+let simOrcamentoData = null;
+let simOrcMap = new Map();
 let mesesDisponiveis = [];
 
 async function api(path, options = {}) {
@@ -466,8 +473,10 @@ async function loadMesesComparar() {
     });
     if (meses.length === 1) {
       fillMesSelect("orc-eq-mes", meses, meses[0].num);
+      fillMesSelect("sim-mes", meses, meses[0].num);
     } else {
       document.getElementById("orc-eq-mes").innerHTML = "<option>—</option>";
+      document.getElementById("sim-mes").innerHTML = "<option>—</option>";
     }
     return;
   }
@@ -475,6 +484,7 @@ async function loadMesesComparar() {
   fillMesSelect("cmp-mes-2", meses, meses[Math.min(1, meses.length - 1)].num);
   fillMesSelect("cmp-mes-3", meses, meses[Math.min(2, meses.length - 1)].num);
   fillMesSelect("orc-eq-mes", meses, meses[meses.length - 1].num);
+  fillMesSelect("sim-mes", meses, meses[meses.length - 1].num);
 }
 
 function getCmpMesesSelecionados() {
@@ -1059,6 +1069,559 @@ async function loadOrcamentoEquipePage() {
     .join("");
 }
 
+function simStorageKey() {
+  const mes = parseInt(document.getElementById("sim-mes")?.value, 10);
+  if (!exercicioAtual || !Number.isFinite(mes)) return null;
+  return `mo_sim_${exercicioAtual}_${mes}`;
+}
+
+function loadSimAjustesFromStorage() {
+  const key = simStorageKey();
+  if (!key) {
+    simAjustes = {};
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(key);
+    simAjustes = raw ? JSON.parse(raw) : {};
+  } catch {
+    simAjustes = {};
+  }
+}
+
+function saveSimAjustesToStorage() {
+  const key = simStorageKey();
+  if (!key) return;
+  if (Object.keys(simAjustes).length === 0) {
+    localStorage.removeItem(key);
+  } else {
+    localStorage.setItem(key, JSON.stringify(simAjustes));
+  }
+}
+
+function destinoKey(d) {
+  return `${d.despesa}\x1f${d.equipe}\x1f${d.divisao}`;
+}
+
+function parseDestinoKey(key) {
+  const [despesa, equipe, divisao] = key.split("\x1f");
+  return { despesa, equipe, divisao };
+}
+
+function destinoIgualLinha(linha, destino) {
+  return (
+    (linha.despesa || "").trim() === (destino.despesa || "").trim() &&
+    (linha.equipe || "").trim() === (destino.equipe || "").trim() &&
+    (linha.divisao || "").trim() === (destino.divisao || "").trim()
+  );
+}
+
+function buildDestinoOptions(selectedKey) {
+  const porDiv = new Map();
+  simDestinos.forEach((d) => {
+    const k = destinoKey(d);
+    if (!porDiv.has(d.divisao)) porDiv.set(d.divisao, []);
+    porDiv.get(d.divisao).push({ ...d, key: k });
+  });
+  let html = '<option value="">— Manter original —</option>';
+  [...porDiv.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], "pt-BR"))
+    .forEach(([div, itens]) => {
+      html += `<optgroup label="${escapeHtml(div)}">`;
+      itens.forEach((d) => {
+        const sel = d.key === selectedKey ? " selected" : "";
+        html += `<option value="${escapeHtml(d.key)}"${sel}>${escapeHtml(d.rotulo)}</option>`;
+      });
+      html += "</optgroup>";
+    });
+  return html;
+}
+
+function fillSimDestinoSelect(sel, selectedKey) {
+  sel.innerHTML = buildDestinoOptions(selectedKey);
+  sel.disabled = simDestinos.length === 0;
+}
+
+function filtrarSimLinhas(linhas) {
+  const divisao = document.getElementById("sim-divisao-filtro").value;
+  const equipe = document.getElementById("sim-equipe-filtro").value;
+  const busca = document.getElementById("sim-busca").value.trim().toLowerCase();
+  return linhas.filter((l) => {
+    if (divisao && l.divisao !== divisao) return false;
+    if (equipe && l.equipe !== equipe) return false;
+    if (!busca) return true;
+    return (
+      l.colaborador.toLowerCase().includes(busca) ||
+      l.equipe.toLowerCase().includes(busca) ||
+      l.despesa.toLowerCase().includes(busca)
+    );
+  });
+}
+
+function computeRealizadoPorChave() {
+  const map = new Map();
+  simLinhasMes.forEach((l) => {
+    const k = destinoKey({ despesa: l.despesa, equipe: l.equipe, divisao: l.divisao });
+    map.set(k, (map.get(k) || 0) + l.valor);
+  });
+  return map;
+}
+
+function computeRealizadoSimuladoPorChave() {
+  const map = new Map();
+  simLinhasMes.forEach((l) => {
+    const aj = simAjustes[l.id];
+    const k = destinoKey({
+      despesa: aj?.nova_despesa ?? l.despesa,
+      equipe: aj?.nova_equipe ?? l.equipe,
+      divisao: aj?.nova_divisao ?? l.divisao,
+    });
+    map.set(k, (map.get(k) || 0) + l.valor);
+  });
+  return map;
+}
+
+function buildSimPainelDetalhe() {
+  const realMap = computeRealizadoPorChave();
+  const simMap = computeRealizadoSimuladoPorChave();
+  const chaves = new Set([...realMap.keys(), ...simMap.keys(), ...simOrcMap.keys()]);
+  const equipeFiltro = document.getElementById("sim-equipe-filtro").value;
+  const divisaoFiltro = document.getElementById("sim-divisao-filtro").value;
+
+  const linhas = [];
+  chaves.forEach((k) => {
+    const { despesa, equipe, divisao } = parseDestinoKey(k);
+    if (divisaoFiltro && divisao !== divisaoFiltro) return;
+    if (equipeFiltro && equipe !== equipeFiltro) return;
+    const orcado = Math.round((simOrcMap.get(k) || 0) * 100) / 100;
+    const realizado = Math.round((realMap.get(k) || 0) * 100) / 100;
+    const simulado = Math.round((simMap.get(k) || 0) * 100) / 100;
+    if (!orcado && !realizado && !simulado) return;
+    const deltaSim = Math.round((simulado - orcado) * 100) / 100;
+    const consumoSim = orcado ? Math.round((simulado / orcado) * 1000) / 10 : null;
+    linhas.push({
+      despesa,
+      equipe,
+      divisao,
+      orcado,
+      realizado,
+      simulado,
+      delta_sim: deltaSim,
+      consumo_sim: consumoSim,
+    });
+  });
+  linhas.sort(
+    (a, b) =>
+      a.divisao.localeCompare(b.divisao, "pt-BR") ||
+      a.equipe.localeCompare(b.equipe, "pt-BR") ||
+      a.despesa.localeCompare(b.despesa, "pt-BR")
+  );
+  return linhas;
+}
+
+function groupSimPainelPorDivisao(detalhe) {
+  const map = new Map();
+  detalhe.forEach((row) => {
+    if (!map.has(row.divisao)) map.set(row.divisao, []);
+    map.get(row.divisao).push(row);
+  });
+  return [...map.entries()]
+    .map(([divisao, linhas]) => {
+      const totais = linhas.reduce(
+        (t, r) => ({
+          orcado: t.orcado + r.orcado,
+          realizado: t.realizado + r.realizado,
+          simulado: t.simulado + r.simulado,
+        }),
+        { orcado: 0, realizado: 0, simulado: 0 }
+      );
+      totais.orcado = Math.round(totais.orcado * 100) / 100;
+      totais.realizado = Math.round(totais.realizado * 100) / 100;
+      totais.simulado = Math.round(totais.simulado * 100) / 100;
+      totais.delta_sim = Math.round((totais.simulado - totais.orcado) * 100) / 100;
+      totais.consumo_sim = totais.orcado
+        ? Math.round((totais.simulado / totais.orcado) * 1000) / 10
+        : null;
+      return { divisao, linhas, totais };
+    })
+    .sort((a, b) => a.divisao.localeCompare(b.divisao, "pt-BR"));
+}
+
+function renderSimPainelBlock(divisao, linhas, totais) {
+  const t = totais;
+  const tdSign = t.delta_sim > 0 ? "+" : "";
+  const deltaPctStr =
+    t.consumo_sim != null ? `${t.consumo_sim}%` : "—";
+  const bodyRows = linhas
+    .map((r) => {
+      const sign = r.delta_sim > 0 ? "+" : "";
+      return `<tr>
+        <td>${escapeHtml(r.equipe)}</td>
+        <td>${escapeHtml(r.despesa)}</td>
+        <td class="num">${fmt(r.orcado)}</td>
+        <td class="num">${fmt(r.realizado)}</td>
+        <td class="num"><strong>${fmt(r.simulado)}</strong></td>
+        <td class="num delta-col ${r.delta_sim > 0 ? "var-up" : r.delta_sim < 0 ? "var-down" : ""}">${sign}${fmt(r.delta_sim)}</td>
+        <td class="num ${consumoClass(r.consumo_sim)}">${r.consumo_sim != null ? `${r.consumo_sim}%` : "—"}</td>
+      </tr>`;
+    })
+    .join("");
+  return `<article class="orc-eq-block sim-painel-block">
+    <header class="orc-eq-block__head">
+      <h3 class="orc-eq-block__title">${escapeHtml(divisao)}</h3>
+      <div class="orc-eq-block__summary">
+        <span>Orçado <strong>${fmt(t.orcado)}</strong></span>
+        <span>Realizado <strong>${fmt(t.realizado)}</strong></span>
+        <span>Simulado <strong>${fmt(t.simulado)}</strong></span>
+        <span class="${t.delta_sim > 0 ? "var-up" : t.delta_sim < 0 ? "var-down" : ""}">Δ sim vs orç <strong>${tdSign}${fmt(t.delta_sim)}</strong></span>
+        <span class="${consumoClass(t.consumo_sim)}">Consumo sim <strong>${deltaPctStr}</strong></span>
+      </div>
+    </header>
+    <div class="table-scroll">
+      <table class="pivot-table cmp-table">
+        <thead><tr>
+          <th>Equipe</th>
+          <th>Despesa</th>
+          <th class="num">Orçado</th>
+          <th class="num">Realizado</th>
+          <th class="num">Simulado</th>
+          <th class="num delta-col">Δ sim vs orç</th>
+          <th class="num">Consumo sim %</th>
+        </tr></thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot><tr>
+          <td colspan="2"><strong>Subtotal · ${escapeHtml(divisao)}</strong></td>
+          <td class="num"><strong>${fmt(t.orcado)}</strong></td>
+          <td class="num"><strong>${fmt(t.realizado)}</strong></td>
+          <td class="num"><strong>${fmt(t.simulado)}</strong></td>
+          <td class="num delta-col ${t.delta_sim > 0 ? "var-up" : t.delta_sim < 0 ? "var-down" : ""}"><strong>${tdSign}${fmt(t.delta_sim)}</strong></td>
+          <td class="num ${consumoClass(t.consumo_sim)}"><strong>${deltaPctStr}</strong></td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </article>`;
+}
+
+function renderSimPainel() {
+  const cardsEl = document.getElementById("sim-painel-cards");
+  const blocksEl = document.getElementById("sim-painel-blocks");
+  const emptyOrc = document.getElementById("sim-orc-empty");
+
+  if (!simOrcamentoData?.tem_orcamento) {
+    emptyOrc.classList.remove("hidden");
+    cardsEl.innerHTML = "";
+    blocksEl.innerHTML = "";
+    const detalhe = buildSimPainelDetalhe();
+    if (detalhe.length) {
+      blocksEl.innerHTML = `<p class="hint">Realizado disponível; importe o orçamento para ver metas por equipe.</p>${groupSimPainelPorDivisao(detalhe)
+        .map((b) => renderSimPainelBlock(b.divisao, b.linhas, b.totais))
+        .join("")}`;
+    }
+    return;
+  }
+  emptyOrc.classList.add("hidden");
+
+  const detalhe = buildSimPainelDetalhe();
+  const totais = detalhe.reduce(
+    (t, r) => ({
+      orcado: t.orcado + r.orcado,
+      realizado: t.realizado + r.realizado,
+      simulado: t.simulado + r.simulado,
+    }),
+    { orcado: 0, realizado: 0, simulado: 0 }
+  );
+  totais.orcado = Math.round(totais.orcado * 100) / 100;
+  totais.realizado = Math.round(totais.realizado * 100) / 100;
+  totais.simulado = Math.round(totais.simulado * 100) / 100;
+  totais.delta_sim = Math.round((totais.simulado - totais.orcado) * 100) / 100;
+  totais.consumo_sim = totais.orcado
+    ? Math.round((totais.simulado / totais.orcado) * 1000) / 10
+    : null;
+
+  cardsEl.innerHTML = `
+    <div class="card"><div class="label">Orçado</div><div class="value">${fmt(totais.orcado)}</div></div>
+    <div class="card"><div class="label">Realizado</div><div class="value">${fmt(totais.realizado)}</div></div>
+    <div class="card"><div class="label">Simulado</div><div class="value">${fmt(totais.simulado)}</div></div>
+    <div class="card"><div class="label">Δ sim vs orç</div><div class="value ${totais.delta_sim > 0 ? "var-up" : totais.delta_sim < 0 ? "var-down" : ""}">${totais.delta_sim > 0 ? "+" : ""}${fmt(totais.delta_sim)}</div></div>
+    <div class="card"><div class="label">Consumo sim</div><div class="value ${consumoClass(totais.consumo_sim)}">${totais.consumo_sim ?? "—"}%</div></div>
+  `;
+
+  const blocos = groupSimPainelPorDivisao(detalhe);
+  blocksEl.innerHTML = blocos.map((b) => renderSimPainelBlock(b.divisao, b.linhas, b.totais)).join("");
+}
+
+function updateSimControles() {
+  const n = Object.keys(simAjustes).length;
+  document.getElementById("sim-contador").textContent = `${n} alteração(ões) pendente(s)`;
+  document.getElementById("sim-limpar").disabled = n === 0;
+  document.getElementById("sim-exportar").disabled = n === 0;
+  const lote = document.getElementById("sim-destino-lote");
+  const aplicar = document.getElementById("sim-aplicar-lote");
+  const anyChecked = document.querySelectorAll("#sim-linhas-table tbody input.sim-row-check:checked").length > 0;
+  aplicar.disabled = !anyChecked || lote.disabled || !lote.value;
+}
+
+function aplicarDestinoLinha(id, destinoKeyVal) {
+  const linha = simLinhasMes.find((l) => l.id === id);
+  if (!linha) return;
+  if (!destinoKeyVal) {
+    delete simAjustes[id];
+  } else {
+    const dest = parseDestinoKey(destinoKeyVal);
+    if (destinoIgualLinha(linha, dest)) {
+      delete simAjustes[id];
+    } else {
+      simAjustes[id] = {
+        nova_despesa: dest.despesa,
+        nova_equipe: dest.equipe,
+        nova_divisao: dest.divisao,
+      };
+    }
+  }
+  saveSimAjustesToStorage();
+  updateSimControles();
+  renderSimPainel();
+  const tr = document.querySelector(`#sim-linhas-table tr[data-id="${id}"]`);
+  if (tr) {
+    tr.classList.toggle("sim-alterada", Boolean(simAjustes[id]));
+  }
+}
+
+function renderSimLinhas() {
+  const tbody = document.querySelector("#sim-linhas-table tbody");
+  const aviso = document.getElementById("sim-linhas-aviso");
+  if (!simLinhas.length) {
+    tbody.innerHTML = `<tr><td colspan="8">Nenhuma linha para este filtro.</td></tr>`;
+    aviso.classList.add("hidden");
+    return;
+  }
+  if (simLinhas.length >= 800) {
+    aviso.textContent = `Exibindo ${simLinhas.length} linhas — use a busca para refinar.`;
+    aviso.classList.remove("hidden");
+  } else {
+    aviso.classList.add("hidden");
+  }
+  const ordenadas = [...simLinhas].sort((a, b) => b.valor - a.valor);
+  tbody.innerHTML = ordenadas
+    .map((l) => {
+      const aj = simAjustes[l.id];
+      const selectedKey = aj
+        ? destinoKey({
+            despesa: aj.nova_despesa,
+            equipe: aj.nova_equipe,
+            divisao: aj.nova_divisao,
+          })
+        : "";
+      const alterada = Boolean(aj);
+      const destinoLabel = aj
+        ? `${aj.nova_despesa} · ${aj.nova_equipe} · ${aj.nova_divisao}`
+        : "";
+      return `<tr data-id="${l.id}" class="${alterada ? "sim-alterada" : ""}">
+        <td class="sim-check-col"><input type="checkbox" class="sim-row-check" data-id="${l.id}" /></td>
+        <td>${escapeHtml(l.colaborador)}</td>
+        <td>${escapeHtml(l.equipe)}</td>
+        <td>${escapeHtml(l.despesa)}</td>
+        <td>${escapeHtml(l.divisao)}</td>
+        <td class="num">${fmt(l.valor)}</td>
+        <td><select class="sim-destino-row" data-id="${l.id}">${buildDestinoOptions(selectedKey)}</select>
+          ${alterada ? `<div class="meta">${escapeHtml(destinoLabel)}</div>` : ""}
+        </td>
+        <td>${alterada ? `<button type="button" class="link-btn sim-reverter" data-id="${l.id}">Reverter</button>` : ""}</td>
+      </tr>`;
+    })
+    .join("");
+
+  tbody.querySelectorAll(".sim-destino-row").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      aplicarDestinoLinha(Number(sel.dataset.id), sel.value);
+    });
+  });
+  tbody.querySelectorAll(".sim-reverter").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.id);
+      delete simAjustes[id];
+      saveSimAjustesToStorage();
+      loadSimulacaoPage();
+    });
+  });
+  tbody.querySelectorAll(".sim-row-check").forEach((cb) => {
+    cb.addEventListener("change", updateSimControles);
+  });
+  document.getElementById("sim-check-all").checked = false;
+  updateSimControles();
+}
+
+async function loadSimDivisoes() {
+  const sel = document.getElementById("sim-divisao-filtro");
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Todas</option>';
+  if (!exercicioAtual) return;
+  const { divisoes } = await api(`/api/divisoes/${exercicioAtual}`);
+  divisoes.forEach((d) => {
+    const opt = document.createElement("option");
+    opt.value = d;
+    opt.textContent = d;
+    sel.appendChild(opt);
+  });
+  sel.value = current || "";
+}
+
+async function loadSimEquipes() {
+  const sel = document.getElementById("sim-equipe-filtro");
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Todas</option>';
+  if (!exercicioAtual) return;
+  const mes = parseInt(document.getElementById("sim-mes").value, 10);
+  if (!Number.isFinite(mes)) return;
+  const q = new URLSearchParams({ mes: String(mes) });
+  const data = await api(`/api/simulacao/${exercicioAtual}/lancamentos?${q}`);
+  const equipes = [...new Set(data.linhas.map((l) => l.equipe))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR")
+  );
+  equipes.forEach((e) => {
+    const opt = document.createElement("option");
+    opt.value = e;
+    opt.textContent = e;
+    sel.appendChild(opt);
+  });
+  sel.value = current || "";
+}
+
+async function loadSimulacaoPage() {
+  if (!exercicioAtual) return;
+  const mes = parseInt(document.getElementById("sim-mes").value, 10);
+  if (!Number.isFinite(mes)) return;
+
+  loadSimAjustesFromStorage();
+
+  const q = new URLSearchParams({ mes: String(mes) });
+
+  const [data, dest, orc] = await Promise.all([
+    api(`/api/simulacao/${exercicioAtual}/lancamentos?${q}`),
+    api(`/api/simulacao/${exercicioAtual}/destinos?mes=${mes}`),
+    api(`/api/orcamento-equipe/${exercicioAtual}?mes=${mes}`).catch(() => ({
+      tem_orcamento: false,
+      linhas: [],
+    })),
+  ]);
+
+  simLinhasMes = data.linhas;
+  simLinhas = filtrarSimLinhas(simLinhasMes);
+  simDestinos = dest.destinos;
+  simOrcamentoData = orc;
+  simOrcMap = new Map();
+  if (orc.tem_orcamento) {
+    orc.linhas.forEach((l) => {
+      simOrcMap.set(destinoKey(l), l.orcado);
+    });
+  }
+
+  const avisoReimport = document.getElementById("sim-reimport-aviso");
+  const semCompletas = simLinhasMes.filter((l) => !l.tem_linha_completa).length;
+  if (semCompletas > 0) {
+    avisoReimport.textContent =
+      `${semCompletas} linha(s) deste mês ainda não têm o Excel completo salvo. Clique em Reimportar no topo para habilitar a exportação com todas as colunas.`;
+    avisoReimport.classList.remove("hidden");
+  } else {
+    avisoReimport.classList.add("hidden");
+  }
+
+  const lote = document.getElementById("sim-destino-lote");
+  fillSimDestinoSelect(lote, "");
+
+  renderSimPainel();
+  renderSimLinhas();
+  updateSimControles();
+}
+
+async function exportarSimulacao() {
+  const mes = parseInt(document.getElementById("sim-mes").value, 10);
+  const ajustes = Object.entries(simAjustes).map(([id, aj]) => ({
+    id: Number(id),
+    nova_despesa: aj.nova_despesa,
+    nova_divisao: aj.nova_divisao,
+    nova_equipe: aj.nova_equipe,
+  }));
+  if (!ajustes.length) return;
+
+  const res = await fetch(
+    `/api/simulacao/${exercicioAtual}/exportar?mes=${mes}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ajustes }),
+    }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || res.statusText);
+  }
+  const blob = await res.blob();
+  const disp = res.headers.get("Content-Disposition") || "";
+  const match = disp.match(/filename="?([^"]+)"?/);
+  const nome = match ? match[1] : `Realocacao_MO_${exercicioAtual}.xlsx`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function setupSimulacao() {
+  document.getElementById("sim-mes").addEventListener("change", async () => {
+    await loadSimEquipes();
+    await loadSimulacaoPage();
+  });
+  document.getElementById("sim-divisao-filtro").addEventListener("change", async () => {
+    await loadSimulacaoPage();
+  });
+  document.getElementById("sim-equipe-filtro").addEventListener("change", () => {
+    simLinhas = filtrarSimLinhas(simLinhasMes);
+    renderSimPainel();
+    renderSimLinhas();
+  });
+  document.getElementById("sim-busca").addEventListener("input", () => {
+    clearTimeout(simBuscaTimer);
+    simBuscaTimer = setTimeout(() => {
+      simLinhas = filtrarSimLinhas(simLinhasMes);
+      renderSimLinhas();
+    }, 200);
+  });
+  document.getElementById("sim-check-all").addEventListener("change", (e) => {
+    const on = e.target.checked;
+    document.querySelectorAll("#sim-linhas-table tbody .sim-row-check").forEach((cb) => {
+      cb.checked = on;
+    });
+    updateSimControles();
+  });
+  document.getElementById("sim-destino-lote").addEventListener("change", updateSimControles);
+  document.getElementById("sim-aplicar-lote").addEventListener("click", () => {
+    const key = document.getElementById("sim-destino-lote").value;
+    if (!key) return;
+    document.querySelectorAll("#sim-linhas-table tbody .sim-row-check:checked").forEach((cb) => {
+      aplicarDestinoLinha(Number(cb.dataset.id), key);
+      const sel = document.querySelector(`.sim-destino-row[data-id="${cb.dataset.id}"]`);
+      if (sel) sel.value = key;
+    });
+    saveSimAjustesToStorage();
+    loadSimulacaoPage();
+  });
+  document.getElementById("sim-limpar").addEventListener("click", () => {
+    if (!confirm("Limpar todas as alterações simuladas deste mês?")) return;
+    simAjustes = {};
+    saveSimAjustesToStorage();
+    loadSimulacaoPage();
+  });
+  document.getElementById("sim-exportar").addEventListener("click", async () => {
+    try {
+      await exportarSimulacao();
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+}
+
 async function refreshAll() {
   if (!exercicioAtual) return;
   await Promise.all([loadDashboard(), loadPivot(), loadPivotPessoas(), loadArquivos()]);
@@ -1073,6 +1636,10 @@ async function refreshAll() {
   const orcEqPanel = document.getElementById("panel-orcamento-equipe");
   if (orcEqPanel.classList.contains("active")) {
     await loadOrcamentoEquipePage();
+  }
+  const simPanel = document.getElementById("panel-simulacao");
+  if (simPanel.classList.contains("active")) {
+    await loadSimulacaoPage();
   }
   const cmpPanel = document.getElementById("panel-comparar");
   if (cmpPanel.classList.contains("active")) {
@@ -1096,6 +1663,11 @@ function setupTabs() {
       }
       if (tab.dataset.tab === "orcamento-equipe") {
         await loadOrcamentoEquipePage();
+      }
+      if (tab.dataset.tab === "simulacao") {
+        await loadSimDivisoes();
+        await loadSimEquipes();
+        await loadSimulacaoPage();
       }
       if (tab.dataset.tab === "comparar") {
         await loadCompararPage();
@@ -1175,6 +1747,8 @@ function setupUpload() {
       await loadExercicios();
       await loadOrcDivisoes();
       await loadOrcEquipeDivisoes();
+      await loadSimDivisoes();
+      await loadSimEquipes();
       await loadMesesComparar();
       await refreshAll();
     } catch (e) {
@@ -1204,6 +1778,7 @@ document.getElementById("btn-reimport").addEventListener("click", async () => {
   await loadDivisoes();
   await loadOrcDivisoes();
   await loadOrcEquipeDivisoes();
+  await loadSimDivisoes();
   await loadMesesComparar();
   await refreshAll();
 });
@@ -1213,6 +1788,7 @@ setupUpload();
 setupDivisaoFilter();
 setupOrcamentoFilter();
 setupOrcamentoEquipeFilter();
+setupSimulacao();
 setupComparar();
 setupArquivosTable();
 
@@ -1221,6 +1797,8 @@ setupArquivosTable();
   await loadDivisoes();
   await loadOrcDivisoes();
   await loadOrcEquipeDivisoes();
+  await loadSimDivisoes();
+  await loadSimEquipes();
   await loadMesesComparar();
   await refreshAll();
 })();

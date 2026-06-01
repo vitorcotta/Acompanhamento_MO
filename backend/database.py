@@ -49,6 +49,18 @@ def migrate_schema() -> bool:
         "ALTER TABLE lancamentos ADD COLUMN despesa VARCHAR(32) NOT NULL DEFAULT ''",
     ):
         needs_reimport = True
+    if _add_column_if_missing(
+        "lancamentos",
+        "dados_linha",
+        "ALTER TABLE lancamentos ADD COLUMN dados_linha TEXT NOT NULL DEFAULT ''",
+    ):
+        needs_reimport = True
+    if _add_column_if_missing(
+        "arquivos",
+        "colunas_json",
+        "ALTER TABLE arquivos ADD COLUMN colunas_json TEXT NOT NULL DEFAULT ''",
+    ):
+        needs_reimport = True
     return needs_reimport
 
 

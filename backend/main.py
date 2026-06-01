@@ -2,8 +2,8 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from budget_importer import (
 )
 from importer import import_directory, import_file
 from models import Arquivo, OrcamentoArquivo
+from simulation import exportar_ajustes_xlsx, list_destinos, list_lancamentos
 from services import (
     colaboradores,
     comparativo_equipe_mes,
@@ -110,6 +111,48 @@ def api_orcamento_equipe(
 @app.get("/api/meses/{exercicio}")
 def api_meses(exercicio: int, db: Session = Depends(get_db)):
     return {"meses": list_meses(db, exercicio)}
+
+
+@app.get("/api/simulacao/{exercicio}/lancamentos")
+def api_simulacao_lancamentos(
+    exercicio: int,
+    mes: int = Query(..., ge=1, le=12),
+    divisao: str | None = None,
+    busca: str | None = None,
+    db: Session = Depends(get_db),
+):
+    linhas = list_lancamentos(db, exercicio, mes, divisao=divisao, busca=busca)
+    return {"mes": mes, "linhas": linhas, "total": len(linhas)}
+
+
+@app.get("/api/simulacao/{exercicio}/destinos")
+def api_simulacao_destinos(
+    exercicio: int,
+    mes: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    return {"destinos": list_destinos(db, exercicio, mes)}
+
+
+@app.post("/api/simulacao/{exercicio}/exportar")
+def api_simulacao_exportar(
+    exercicio: int,
+    mes: int = Query(..., ge=1, le=12),
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    ajustes = body.get("ajustes")
+    if not isinstance(ajustes, list):
+        raise HTTPException(400, "Campo 'ajustes' deve ser uma lista.")
+    try:
+        conteudo, nome = exportar_ajustes_xlsx(db, exercicio, mes, ajustes)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return Response(
+        content=conteudo,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 @app.get("/api/comparar/{exercicio}")
