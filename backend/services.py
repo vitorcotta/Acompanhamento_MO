@@ -491,3 +491,115 @@ def comparativo_orcamento(
             "consumo_pct": round(tot_real / tot_orcado * 100, 1) if tot_orcado else None,
         },
     }
+
+
+def comparativo_equipe_mes(
+    db: Session, exercicio: int, mes: int, divisao: str | None = None
+) -> dict:
+    tem_orc = (
+        db.query(Orcamento.id)
+        .filter(Orcamento.exercicio == exercicio, Orcamento.mes == mes)
+        .limit(1)
+        .first()
+    )
+    if not tem_orc:
+        return {
+            "tem_orcamento": False,
+            "mes": mes,
+            "mes_label": MESES_NOME.get(mes, str(mes)),
+            "linhas": [],
+            "totais": None,
+        }
+
+    orc_q = (
+        db.query(
+            Orcamento.equipe,
+            Orcamento.divisao,
+            Orcamento.despesa,
+            func.sum(Orcamento.valor).label("valor"),
+        )
+        .filter(Orcamento.exercicio == exercicio, Orcamento.mes == mes)
+        .group_by(Orcamento.equipe, Orcamento.divisao, Orcamento.despesa)
+    )
+    if divisao:
+        orc_q = orc_q.filter(Orcamento.divisao == divisao)
+    orc_rows = orc_q.all()
+
+    real_q = (
+        db.query(
+            Lancamento.equipe,
+            Lancamento.divisao,
+            Lancamento.despesa,
+            func.sum(Lancamento.valor).label("valor"),
+        )
+        .filter(Lancamento.exercicio == exercicio, Lancamento.mes == mes)
+        .group_by(Lancamento.equipe, Lancamento.divisao, Lancamento.despesa)
+    )
+    if divisao:
+        real_q = real_q.filter(Lancamento.divisao == divisao)
+    real_rows = real_q.all()
+
+    grid: dict[tuple[str, str, str], dict] = {}
+
+    def _cell(equipe: str, divisao_nome: str, despesa: str) -> dict:
+        key = (equipe, divisao_nome, despesa)
+        if key not in grid:
+            grid[key] = {
+                "equipe": equipe,
+                "divisao": divisao_nome,
+                "despesa": despesa,
+                "orcado": 0.0,
+                "realizado": 0.0,
+            }
+        return grid[key]
+
+    for r in orc_rows:
+        c = _cell(r.equipe, r.divisao, r.despesa)
+        c["orcado"] += float(r.valor)
+
+    for r in real_rows:
+        c = _cell(r.equipe, r.divisao, r.despesa or "")
+        c["realizado"] += float(r.valor)
+
+    linhas = []
+    for item in grid.values():
+        orcado = round(item["orcado"], 2)
+        realizado = round(item["realizado"], 2)
+        delta_valor = round(realizado - orcado, 2)
+        delta_pct = round(delta_valor / orcado * 100, 1) if orcado else None
+        consumo_pct = round(realizado / orcado * 100, 1) if orcado else None
+        linhas.append(
+            {
+                "equipe": item["equipe"],
+                "divisao": item["divisao"],
+                "despesa": item["despesa"],
+                "orcado": orcado,
+                "realizado": realizado,
+                "delta_valor": delta_valor,
+                "delta_pct": delta_pct,
+                "consumo_pct": consumo_pct,
+            }
+        )
+
+    linhas.sort(
+        key=lambda x: (x["consumo_pct"] if x["consumo_pct"] is not None else -1),
+        reverse=True,
+    )
+
+    tot_o = sum(x["orcado"] for x in linhas)
+    tot_r = sum(x["realizado"] for x in linhas)
+    delta_t = round(tot_r - tot_o, 2)
+
+    return {
+        "tem_orcamento": True,
+        "mes": mes,
+        "mes_label": MESES_NOME.get(mes, str(mes)),
+        "linhas": linhas,
+        "totais": {
+            "orcado": round(tot_o, 2),
+            "realizado": round(tot_r, 2),
+            "delta_valor": delta_t,
+            "delta_pct": round(delta_t / tot_o * 100, 1) if tot_o else None,
+            "consumo_pct": round(tot_r / tot_o * 100, 1) if tot_o else None,
+        },
+    }

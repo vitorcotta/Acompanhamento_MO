@@ -19,6 +19,7 @@ from importer import import_directory, import_file
 from models import Arquivo, OrcamentoArquivo
 from services import (
     colaboradores,
+    comparativo_equipe_mes,
     comparativo_orcamento,
     comparar_meses,
     list_arquivos,
@@ -94,6 +95,16 @@ def api_orcamento(
     exercicio: int, divisao: str | None = None, db: Session = Depends(get_db)
 ):
     return comparativo_orcamento(db, exercicio, divisao)
+
+
+@app.get("/api/orcamento-equipe/{exercicio}")
+def api_orcamento_equipe(
+    exercicio: int,
+    mes: int = Query(..., ge=1, le=12),
+    divisao: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return comparativo_equipe_mes(db, exercicio, mes, divisao)
 
 
 @app.get("/api/meses/{exercicio}")

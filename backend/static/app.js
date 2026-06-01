@@ -31,6 +31,7 @@ let orcCharts = {};
 let exercicioAtual = null;
 let divisaoAtual = null;
 let orcDivisaoFiltro = "";
+let orcEqDivisaoFiltro = "";
 let cmpDimensao = "equipe";
 let mesesDisponiveis = [];
 
@@ -463,11 +464,17 @@ async function loadMesesComparar() {
     ids.forEach((id) => {
       document.getElementById(id).innerHTML = "<option>—</option>";
     });
+    if (meses.length === 1) {
+      fillMesSelect("orc-eq-mes", meses, meses[0].num);
+    } else {
+      document.getElementById("orc-eq-mes").innerHTML = "<option>—</option>";
+    }
     return;
   }
   fillMesSelect("cmp-mes-1", meses, meses[0].num);
   fillMesSelect("cmp-mes-2", meses, meses[Math.min(1, meses.length - 1)].num);
   fillMesSelect("cmp-mes-3", meses, meses[Math.min(2, meses.length - 1)].num);
+  fillMesSelect("orc-eq-mes", meses, meses[meses.length - 1].num);
 }
 
 function getCmpMesesSelecionados() {
@@ -888,6 +895,170 @@ async function loadOrcamentoPage() {
     .join("");
 }
 
+async function loadOrcEquipeDivisoes() {
+  const sel = document.getElementById("orc-eq-divisao-filtro");
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Todas</option>';
+  if (!exercicioAtual) return;
+  const { divisoes } = await api(`/api/divisoes/${exercicioAtual}`);
+  divisoes.forEach((d) => {
+    const opt = document.createElement("option");
+    opt.value = d;
+    opt.textContent = d;
+    sel.appendChild(opt);
+  });
+  sel.value = current || "";
+  orcEqDivisaoFiltro = sel.value;
+}
+
+function totaisOrcEqLinhas(linhas) {
+  const orcado = linhas.reduce((s, l) => s + l.orcado, 0);
+  const realizado = linhas.reduce((s, l) => s + l.realizado, 0);
+  const delta_valor = Math.round((realizado - orcado) * 100) / 100;
+  const delta_pct = orcado ? Math.round((delta_valor / orcado) * 1000) / 10 : null;
+  const consumo_pct = orcado ? Math.round((realizado / orcado) * 1000) / 10 : null;
+  return {
+    orcado: Math.round(orcado * 100) / 100,
+    realizado: Math.round(realizado * 100) / 100,
+    delta_valor,
+    delta_pct,
+    consumo_pct,
+  };
+}
+
+function groupLinhasPorDivisao(linhas) {
+  const map = new Map();
+  linhas.forEach((l) => {
+    const key = l.divisao || "(sem divisão)";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(l);
+  });
+  return [...map.entries()]
+    .map(([divisao, grupo]) => ({
+      divisao,
+      linhas: [...grupo].sort(
+        (a, b) =>
+          (b.consumo_pct ?? -1) - (a.consumo_pct ?? -1) ||
+          a.equipe.localeCompare(b.equipe, "pt-BR")
+      ),
+      totais: totaisOrcEqLinhas(grupo),
+    }))
+    .sort(
+      (a, b) =>
+        (b.totais.consumo_pct ?? -1) - (a.totais.consumo_pct ?? -1) ||
+        a.divisao.localeCompare(b.divisao, "pt-BR")
+    );
+}
+
+function renderOrcEqCardsTotais(t, mesLabel, tituloCards) {
+  return `
+    <div class="card"><div class="label">${tituloCards || "Mês"}</div><div class="value">${mesLabel}</div></div>
+    <div class="card"><div class="label">Orçado</div><div class="value">${fmt(t.orcado)}</div></div>
+    <div class="card"><div class="label">Realizado</div><div class="value">${fmt(t.realizado)}</div></div>
+    <div class="card"><div class="label">Δ valor</div><div class="value ${deltaClass(t.delta_pct)}">${t.delta_valor > 0 ? "+" : ""}${fmt(t.delta_valor)}</div></div>
+    <div class="card"><div class="label">Δ %</div><div class="value ${deltaClass(t.delta_pct)}">${t.delta_pct != null ? `${t.delta_pct > 0 ? "+" : ""}${t.delta_pct}%` : "—"}</div></div>
+    <div class="card"><div class="label">Consumo</div><div class="value ${consumoClass(t.consumo_pct)}">${t.consumo_pct ?? "—"}%</div></div>
+  `;
+}
+
+function renderOrcEqLinhaRow(linha) {
+  const dv = linha.delta_valor;
+  const sign = dv > 0 ? "+" : "";
+  return `<tr>
+    <td>${escapeHtml(linha.equipe)}</td>
+    <td>${escapeHtml(linha.despesa)}</td>
+    <td class="num">${fmt(linha.orcado)}</td>
+    <td class="num">${fmt(linha.realizado)}</td>
+    <td class="num delta-col ${deltaClass(linha.delta_pct)}">${sign}${fmt(dv)}</td>
+    <td class="num delta-col"><span class="delta-pct ${deltaClass(linha.delta_pct)}">${linha.delta_pct != null ? `${linha.delta_pct > 0 ? "+" : ""}${linha.delta_pct}%` : "—"}</span></td>
+    <td class="num ${consumoClass(linha.consumo_pct)}">${linha.consumo_pct != null ? `${linha.consumo_pct}%` : "—"}</td>
+  </tr>`;
+}
+
+function renderOrcEqBlock(divisao, linhas, totais) {
+  const t = totais;
+  const tdSign = t.delta_valor > 0 ? "+" : "";
+  const deltaPctStr =
+    t.delta_pct != null ? `${t.delta_pct > 0 ? "+" : ""}${t.delta_pct}%` : "—";
+  return `<article class="orc-eq-block" data-divisao="${escapeHtml(divisao)}">
+    <header class="orc-eq-block__head">
+      <h3 class="orc-eq-block__title">${escapeHtml(divisao)}</h3>
+      <div class="orc-eq-block__summary">
+        <span>Orçado <strong>${fmt(t.orcado)}</strong></span>
+        <span>Realizado <strong>${fmt(t.realizado)}</strong></span>
+        <span class="${deltaClass(t.delta_pct)}">Δ <strong>${tdSign}${fmt(t.delta_valor)}</strong> · <strong>${deltaPctStr}</strong></span>
+        <span class="${consumoClass(t.consumo_pct)}">Consumo <strong>${t.consumo_pct ?? "—"}%</strong></span>
+      </div>
+    </header>
+    <div class="table-scroll">
+      <table class="pivot-table cmp-table">
+        <thead><tr>
+          <th>Equipe</th>
+          <th>Despesa</th>
+          <th class="num">Orçado</th>
+          <th class="num">Realizado</th>
+          <th class="num delta-col">Δ R$</th>
+          <th class="num delta-col">Δ %</th>
+          <th class="num">Consumo %</th>
+        </tr></thead>
+        <tbody>${linhas.map(renderOrcEqLinhaRow).join("")}</tbody>
+        <tfoot><tr>
+          <td colspan="2"><strong>Subtotal · ${escapeHtml(divisao)}</strong></td>
+          <td class="num"><strong>${fmt(t.orcado)}</strong></td>
+          <td class="num"><strong>${fmt(t.realizado)}</strong></td>
+          <td class="num delta-col ${deltaClass(t.delta_pct)}"><strong>${tdSign}${fmt(t.delta_valor)}</strong></td>
+          <td class="num delta-col"><span class="delta-pct ${deltaClass(t.delta_pct)}"><strong>${deltaPctStr}</strong></span></td>
+          <td class="num ${consumoClass(t.consumo_pct)}"><strong>${t.consumo_pct ?? "—"}%</strong></td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </article>`;
+}
+
+async function loadOrcamentoEquipePage() {
+  if (!exercicioAtual) return;
+  const mes = parseInt(document.getElementById("orc-eq-mes").value, 10);
+  const emptyEl = document.getElementById("orc-eq-empty");
+  const blocksEl = document.getElementById("orc-eq-blocks");
+  const cardsEl = document.getElementById("orc-eq-cards");
+
+  if (!Number.isFinite(mes)) {
+    emptyEl.classList.remove("hidden");
+    blocksEl.innerHTML = "";
+    blocksEl.classList.add("hidden");
+    cardsEl.innerHTML = "";
+    return;
+  }
+
+  const q = new URLSearchParams({ mes: String(mes) });
+  if (orcEqDivisaoFiltro) q.set("divisao", orcEqDivisaoFiltro);
+  const data = await api(`/api/orcamento-equipe/${exercicioAtual}?${q}`);
+
+  if (!data.tem_orcamento) {
+    emptyEl.classList.remove("hidden");
+    blocksEl.innerHTML = "";
+    blocksEl.classList.add("hidden");
+    cardsEl.innerHTML = "";
+    return;
+  }
+
+  emptyEl.classList.add("hidden");
+  blocksEl.classList.remove("hidden");
+
+  const t = data.totais;
+  const todasDivisoes = !orcEqDivisaoFiltro;
+  cardsEl.innerHTML = renderOrcEqCardsTotais(
+    t,
+    data.mes_label,
+    todasDivisoes ? "Mês (todas divisões)" : orcEqDivisaoFiltro
+  );
+
+  const blocos = groupLinhasPorDivisao(data.linhas);
+  blocksEl.innerHTML = blocos
+    .map((b) => renderOrcEqBlock(b.divisao, b.linhas, b.totais))
+    .join("");
+}
+
 async function refreshAll() {
   if (!exercicioAtual) return;
   await Promise.all([loadDashboard(), loadPivot(), loadPivotPessoas(), loadArquivos()]);
@@ -898,6 +1069,10 @@ async function refreshAll() {
   const orcPanel = document.getElementById("panel-orcamento");
   if (orcPanel.classList.contains("active")) {
     await loadOrcamentoPage();
+  }
+  const orcEqPanel = document.getElementById("panel-orcamento-equipe");
+  if (orcEqPanel.classList.contains("active")) {
+    await loadOrcamentoEquipePage();
   }
   const cmpPanel = document.getElementById("panel-comparar");
   if (cmpPanel.classList.contains("active")) {
@@ -918,6 +1093,9 @@ function setupTabs() {
       }
       if (tab.dataset.tab === "orcamento") {
         await loadOrcamentoPage();
+      }
+      if (tab.dataset.tab === "orcamento-equipe") {
+        await loadOrcamentoEquipePage();
       }
       if (tab.dataset.tab === "comparar") {
         await loadCompararPage();
@@ -958,6 +1136,14 @@ function setupOrcamentoFilter() {
   });
 }
 
+function setupOrcamentoEquipeFilter() {
+  document.getElementById("orc-eq-mes").addEventListener("change", () => loadOrcamentoEquipePage());
+  document.getElementById("orc-eq-divisao-filtro").addEventListener("change", async (e) => {
+    orcEqDivisaoFiltro = e.target.value;
+    await loadOrcamentoEquipePage();
+  });
+}
+
 function setupDivisaoFilter() {
   document.getElementById("divisao-filtro").addEventListener("change", async (e) => {
     divisaoAtual = e.target.value;
@@ -988,6 +1174,7 @@ function setupUpload() {
       showStatus(`Importado: ${res.arquivo.nome} (${detalhe})`, true);
       await loadExercicios();
       await loadOrcDivisoes();
+      await loadOrcEquipeDivisoes();
       await loadMesesComparar();
       await refreshAll();
     } catch (e) {
@@ -1016,6 +1203,7 @@ document.getElementById("btn-reimport").addEventListener("click", async () => {
   await loadExercicios();
   await loadDivisoes();
   await loadOrcDivisoes();
+  await loadOrcEquipeDivisoes();
   await loadMesesComparar();
   await refreshAll();
 });
@@ -1024,6 +1212,7 @@ setupTabs();
 setupUpload();
 setupDivisaoFilter();
 setupOrcamentoFilter();
+setupOrcamentoEquipeFilter();
 setupComparar();
 setupArquivosTable();
 
@@ -1031,6 +1220,7 @@ setupArquivosTable();
   await loadExercicios();
   await loadDivisoes();
   await loadOrcDivisoes();
+  await loadOrcEquipeDivisoes();
   await loadMesesComparar();
   await refreshAll();
 })();

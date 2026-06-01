@@ -34,6 +34,23 @@ def is_orcamento_file(path: Path) -> bool:
     return "orcamento" in _nome_normalizado(path)
 
 
+def is_orcamento_mes_a_mes(path: Path) -> bool:
+    n = _nome_normalizado(path)
+    compact = n.replace(" ", "").replace("-", "")
+    return "orcamento" in n and ("mes a mes" in n or "mesames" in compact)
+
+
+def pick_orcamento_file(paths: list[Path]) -> Path | None:
+    """Escolhe um único arquivo de orçamento (prioriza planilha mês a mês)."""
+    candidatos = [p for p in paths if is_orcamento_file(p)]
+    if not candidatos:
+        return None
+    mes_a_mes = [p for p in candidatos if is_orcamento_mes_a_mes(p)]
+    if mes_a_mes:
+        return sorted(mes_a_mes, key=lambda p: p.name)[-1]
+    return sorted(candidatos, key=lambda p: p.name)[-1]
+
+
 def _file_hash(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -184,13 +201,14 @@ def import_orcamento_directory(db: Session, directory: Path) -> list[OrcamentoAr
     imported: list[OrcamentoArquivo] = []
     if not directory.exists():
         return imported
-    for path in sorted(directory.glob("*.xlsx")) + sorted(directory.glob("*.XLSX")):
-        if not is_orcamento_file(path):
-            continue
-        try:
-            imported.append(import_orcamento_file(db, path))
-        except Exception as exc:
-            print(f"[orcamento] ignorando {path.name}: {exc}")
+    all_paths = list(directory.glob("*.xlsx")) + list(directory.glob("*.XLSX"))
+    escolhido = pick_orcamento_file(all_paths)
+    if not escolhido:
+        return imported
+    try:
+        imported.append(import_orcamento_file(db, escolhido))
+    except Exception as exc:
+        print(f"[orcamento] ignorando {escolhido.name}: {exc}")
     return imported
 
 

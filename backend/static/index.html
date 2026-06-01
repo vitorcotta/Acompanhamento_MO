@@ -30,6 +30,7 @@
     <button type="button" class="tab" data-tab="divisao">Por divisão</button>
     <button type="button" class="tab" data-tab="comparar">Comparar meses</button>
     <button type="button" class="tab" data-tab="orcamento">Orçado vs realizado</button>
+    <button type="button" class="tab" data-tab="orcamento-equipe">Orçado por equipe</button>
     <button type="button" class="tab" data-tab="upload">Upload</button>
     <button type="button" class="tab" data-tab="arquivos">Arquivos</button>
   </nav>
@@ -171,6 +172,25 @@
         </table>
       </div>
       <p id="orc-empty" class="hint hidden">Nenhum orçamento importado. Coloque <strong>Orçamento.xlsx</strong> em Excel/ e clique em Reimportar, ou envie pelo Upload.</p>
+    </section>
+
+    <section id="panel-orcamento-equipe" class="panel">
+      <div class="panel-toolbar">
+        <label class="select-wrap">
+          Mês
+          <select id="orc-eq-mes"></select>
+        </label>
+        <label class="select-wrap">
+          Divisão
+          <select id="orc-eq-divisao-filtro">
+            <option value="">Todas</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">Orçado vs realizado no mês, por <strong>equipe</strong> dentro de cada <strong>divisão</strong>. Com «Todas», cada divisão aparece em um bloco; ao filtrar, só o bloco da divisão escolhida.</p>
+      <div class="cards" id="orc-eq-cards"></div>
+      <div id="orc-eq-blocks" class="orc-eq-blocks"></div>
+      <p id="orc-eq-empty" class="hint hidden">Nenhum orçamento para este mês. Importe a planilha <strong>ORÇAMENTO … MÊS A MÊS</strong> e clique em Reimportar.</p>
     </section>
 
     <section id="panel-upload" class="panel">

@@ -34,7 +34,8 @@ Abra no navegador: **http://localhost:8000**
 - **Por pessoa**: mesma tabela pivot, agrupada por **Nome** (colaborador)
 - **Comparar meses**: escolha 2 ou 3 meses e compare por equipe, pessoa ou divisão
 - **Por divisão**: mesmo acompanhamento filtrado pela coluna Divisão
-- **Orçado vs realizado**: compara planilha `Orçamento.xlsx` (Jan–Dez) com o realizado, pela chave **Despesa + Divisão**
+- **Orçado vs realizado**: compara planilha de orçamento (Jan–Dez) com o realizado, pela chave **Despesa + Divisão** (visão anual)
+- **Orçado por equipe**: no mês escolhido, orçado vs realizado por **equipe + divisão** (Δ em R$ e %), com filtro de divisão
 - **Upload**: envie o Excel do mês; períodos já existentes são substituídos pelos dados do novo arquivo
 - **Arquivos**: histórico do que foi importado
 
@@ -42,7 +43,7 @@ Os dados ficam no volume Docker `mo_data` (banco SQLite + uploads). A pasta `Exc
 
 ### Reimportar
 
-O botão **Reimportar** reprocessa os realizados e o **Orçamento.xlsx** em `Excel/`, além dos arquivos em `/data/uploads`.
+O botão **Reimportar** reprocessa os realizados e o orçamento em `Excel/` (prioriza `ORÇAMENTO … MÊS A MÊS.xlsx` se houver mais de um arquivo de orçamento), além dos arquivos em `/data/uploads`.
 
 **Orçamento:** após subir pelo Upload, ele fica no volume Docker. Ao reiniciar o container, **não** volta a puxar automaticamente de `Excel/` (só de uploads ou via Reimportar). Para trocar o orçado, use **Upload** ou exclua na aba Arquivos (tipo Orçamento).
 
