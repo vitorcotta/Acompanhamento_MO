@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 .DS_Store
 data/
-Excel/
 *.xlsx
 *.xls
 *.csv
