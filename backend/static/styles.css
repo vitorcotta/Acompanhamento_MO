@@ -388,6 +388,50 @@ main { padding: 1.25rem 1.5rem; max-width: 1400px; margin: 0 auto; }
 .pivot-table .var-down { color: var(--down); font-size: 0.7rem; display: block; }
 .pivot-table .sub { font-size: 0.68rem; color: var(--muted); }
 
+.pivot-table--clickable tbody tr { cursor: pointer; }
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #0009;
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.modal-overlay.active { display: flex; }
+.modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 960px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { margin: 0; font-size: 1rem; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.4rem;
+}
+.modal-close:hover { color: #fff; }
+.modal-body { padding: 1rem 1.25rem; overflow: auto; }
+
 .pivot-table--pessoas th:first-child,
 .pivot-table--pessoas td:first-child {
   max-width: 280px;

@@ -180,8 +180,10 @@ def api_pivot(
 
 
 @app.get("/api/pivot-pessoas/{exercicio}")
-def api_pivot_pessoas(exercicio: int, db: Session = Depends(get_db)):
-    return pivot_colaboradores(db, exercicio)
+def api_pivot_pessoas(
+    exercicio: int, equipe: str | None = None, db: Session = Depends(get_db)
+):
+    return pivot_colaboradores(db, exercicio, equipe)
 
 
 @app.get("/api/colaboradores/{exercicio}")

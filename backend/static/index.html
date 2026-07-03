@@ -60,14 +60,31 @@
     </section>
 
     <section id="panel-pivot" class="panel">
-      <p class="hint">Valores realizados por <strong>Descrição Despesa</strong> (equipe). Células mostram variação % vs mês anterior.</p>
+      <p class="hint">Valores realizados por <strong>Descrição Despesa</strong> (equipe). Células mostram variação % vs mês anterior. Clique em uma equipe para ver o detalhamento por pessoa.</p>
       <div class="table-scroll">
-        <table id="pivot-table" class="pivot-table">
+        <table id="pivot-table" class="pivot-table pivot-table--clickable">
           <thead></thead>
           <tbody></tbody>
         </table>
       </div>
     </section>
+
+    <div id="equipe-modal-overlay" class="modal-overlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3 id="equipe-modal-title">Detalhamento por pessoa</h3>
+          <button type="button" id="equipe-modal-close" class="modal-close" aria-label="Fechar">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="table-scroll">
+            <table id="equipe-modal-table" class="pivot-table pivot-table--pessoas">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <section id="panel-pessoas" class="panel">
       <p class="hint">Valores realizados por <strong>Nome</strong> (colaborador). Células mostram variação % vs mês anterior.</p>

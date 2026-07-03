@@ -337,7 +337,12 @@ function renderCharts(chartSet, ids, resumo) {
   });
 }
 
-function renderPivotTable(tableEl, data, rowHeader = "Equipe (Descrição Despesa)") {
+function renderPivotTable(
+  tableEl,
+  data,
+  rowHeader = "Equipe (Descrição Despesa)",
+  { rowAttr } = {}
+) {
   const linhas = data.linhas || data.equipes || data.colaboradores || [];
   const thead = tableEl.querySelector("thead");
   const tbody = tableEl.querySelector("tbody");
@@ -368,7 +373,8 @@ function renderPivotTable(tableEl, data, rowHeader = "Equipe (Descrição Despes
         .join("");
       const tot = row.total_ano;
       const pctAno = tot.total ? ((tot.adm / tot.total) * 100).toFixed(0) : 0;
-      return `<tr>
+      const attr = rowAttr ? ` data-${rowAttr}="${linha.replace(/"/g, "&quot;")}"` : "";
+      return `<tr${attr}>
         <td class="pivot-row-name">${linha}</td>
         ${cells}
         <td>${fmt(tot.total)}<span class="sub">ADM ${pctAno}%</span></td>
@@ -436,7 +442,49 @@ async function loadDashboard() {
 
 async function loadPivot() {
   const data = await api(`/api/pivot/${exercicioAtual}`);
-  renderPivotTable(document.getElementById("pivot-table"), data);
+  renderPivotTable(document.getElementById("pivot-table"), data, undefined, {
+    rowAttr: "equipe",
+  });
+}
+
+async function openEquipeModal(equipe) {
+  const overlay = document.getElementById("equipe-modal-overlay");
+  document.getElementById("equipe-modal-title").textContent =
+    `Detalhamento por pessoa — ${equipe}`;
+  overlay.classList.add("active");
+  const data = await api(
+    `/api/pivot-pessoas/${exercicioAtual}?equipe=${encodeURIComponent(equipe)}`
+  );
+  renderPivotTable(
+    document.getElementById("equipe-modal-table"),
+    data,
+    "Colaborador (Nome)"
+  );
+}
+
+function closeEquipeModal() {
+  document.getElementById("equipe-modal-overlay").classList.remove("active");
+}
+
+function initEquipeModal() {
+  document
+    .getElementById("pivot-table")
+    .querySelector("tbody")
+    .addEventListener("click", (ev) => {
+      const row = ev.target.closest("tr[data-equipe]");
+      if (!row) return;
+      openEquipeModal(row.dataset.equipe);
+    });
+  document
+    .getElementById("equipe-modal-close")
+    .addEventListener("click", closeEquipeModal);
+  const overlay = document.getElementById("equipe-modal-overlay");
+  overlay.addEventListener("click", (ev) => {
+    if (ev.target === overlay) closeEquipeModal();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeEquipeModal();
+  });
 }
 
 async function loadPivotPessoas() {
@@ -1791,6 +1839,7 @@ setupOrcamentoEquipeFilter();
 setupSimulacao();
 setupComparar();
 setupArquivosTable();
+initEquipeModal();
 
 (async () => {
   await loadExercicios();

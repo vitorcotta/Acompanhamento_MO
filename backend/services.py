@@ -335,21 +335,21 @@ def pivot_equipes(db: Session, exercicio: int, divisao: str | None = None) -> di
     return result
 
 
-def pivot_colaboradores(db: Session, exercicio: int) -> dict:
-    rows = (
-        db.query(
-            Lancamento.colaborador,
-            Lancamento.mes,
-            Lancamento.is_adm,
-            func.sum(Lancamento.valor).label("valor"),
-        )
-        .filter(
-            Lancamento.exercicio == exercicio,
-            Lancamento.colaborador != "",
-        )
-        .group_by(Lancamento.colaborador, Lancamento.mes, Lancamento.is_adm)
-        .all()
+def pivot_colaboradores(
+    db: Session, exercicio: int, equipe: str | None = None
+) -> dict:
+    q = db.query(
+        Lancamento.colaborador,
+        Lancamento.mes,
+        Lancamento.is_adm,
+        func.sum(Lancamento.valor).label("valor"),
+    ).filter(
+        Lancamento.exercicio == exercicio,
+        Lancamento.colaborador != "",
     )
+    if equipe:
+        q = q.filter(Lancamento.equipe == equipe)
+    rows = q.group_by(Lancamento.colaborador, Lancamento.mes, Lancamento.is_adm).all()
     result = _build_pivot(rows, lambda r: r.colaborador)
     result["colaboradores"] = result["linhas"]
     return result

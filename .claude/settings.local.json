@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('backend/services.py'\\).read\\(\\)\\); ast.parse\\(open\\('backend/main.py'\\).read\\(\\)\\)\")",
+      "Bash(node -c backend/static/app.js)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('backend/services.py'\\).read\\(\\)\\); ast.parse\\(open\\('backend/main.py'\\).read\\(\\)\\); print\\('py ok'\\)\")",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(curl -s \"http://127.0.0.1:8123/api/pivot/2026\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d['linhas'][:3]\\)\")",
+      "Bash(curl -s \"http://127.0.0.1:8123/api/pivot-pessoas/2026?equipe=MO%20SRE\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d['linhas']\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(len\\(d['linhas']\\)\\); print\\(d['linhas']\\)\")",
+      "Bash(python3 -c \"import urllib.parse; print\\(urllib.parse.quote\\('Sálario Mensal'\\)\\)\")",
+      "Bash(curl -s \"http://127.0.0.1:8123/api/pivot-pessoas/2026?equipe=$\\(python3 -c \"import urllib.parse; print\\(urllib.parse.quote\\('Sálario Mensal'\\)\\)\"\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d['linhas'][:5], len\\(d['linhas']\\)\\)\")",
+      "Bash(which chromium-cli *)",
+      "Read(//private/tmp/claude-501/bundled-skills/**)",
+      "Bash(command -v chromium-cli)",
+      "Bash(npx --yes chromium-cli --help)",
+      "Bash(curl -s http://127.0.0.1:8123/static/app.js)",
+      "Bash(pkill -f \"uvicorn main:app\")"
+    ]
+  }
+}
