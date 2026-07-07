@@ -493,6 +493,87 @@ def comparativo_orcamento(
     }
 
 
+def orcamento_equipe_anual(
+    db: Session, exercicio: int, divisao: str | None = None
+) -> dict:
+    orc_q = db.query(
+        Orcamento.equipe,
+        Orcamento.mes,
+        Orcamento.valor,
+    ).filter(Orcamento.exercicio == exercicio)
+    if divisao:
+        orc_q = orc_q.filter(Orcamento.divisao == divisao)
+    orc_rows = orc_q.all()
+
+    if not orc_rows:
+        return {
+            "tem_orcamento": False,
+            "meses": [],
+            "linhas": [],
+            "totais": None,
+        }
+
+    real_q = db.query(
+        Lancamento.equipe,
+        Lancamento.mes,
+        func.sum(Lancamento.valor).label("valor"),
+    ).filter(Lancamento.exercicio == exercicio)
+    if divisao:
+        real_q = real_q.filter(Lancamento.divisao == divisao)
+    real_rows = real_q.group_by(Lancamento.equipe, Lancamento.mes).all()
+
+    meses = sorted({r.mes for r in orc_rows} | {r.mes for r in real_rows})
+    equipes: dict[str, dict] = {}
+
+    def _linha(equipe: str) -> dict:
+        if equipe not in equipes:
+            equipes[equipe] = {
+                "equipe": equipe,
+                "meses": {m: {"orcado": 0.0, "realizado": 0.0} for m in range(1, 13)},
+                "total_ano": {"orcado": 0.0, "realizado": 0.0},
+            }
+        return equipes[equipe]
+
+    for r in orc_rows:
+        linha = _linha(r.equipe)
+        linha["meses"][r.mes]["orcado"] += r.valor
+        linha["total_ano"]["orcado"] += r.valor
+
+    for r in real_rows:
+        linha = _linha(r.equipe or "")
+        linha["meses"][r.mes]["realizado"] += float(r.valor)
+        linha["total_ano"]["realizado"] += float(r.valor)
+
+    linhas = []
+    for equipe in sorted(equipes):
+        item = equipes[equipe]
+        for m in item["meses"]:
+            for campo in ("orcado", "realizado"):
+                item["meses"][m][campo] = round(item["meses"][m][campo], 2)
+        for campo in ("orcado", "realizado"):
+            item["total_ano"][campo] = round(item["total_ano"][campo], 2)
+        o = item["total_ano"]["orcado"]
+        r = item["total_ano"]["realizado"]
+        item["total_ano"]["saldo"] = round(o - r, 2)
+        item["total_ano"]["consumo_pct"] = round(r / o * 100, 1) if o else None
+        linhas.append(item)
+
+    tot_orcado = sum(x["total_ano"]["orcado"] for x in linhas)
+    tot_real = sum(x["total_ano"]["realizado"] for x in linhas)
+
+    return {
+        "tem_orcamento": True,
+        "meses": [{"num": m, "label": MESES_NOME.get(m, str(m))} for m in meses],
+        "linhas": linhas,
+        "totais": {
+            "orcado": round(tot_orcado, 2),
+            "realizado": round(tot_real, 2),
+            "saldo": round(tot_orcado - tot_real, 2),
+            "consumo_pct": round(tot_real / tot_orcado * 100, 1) if tot_orcado else None,
+        },
+    }
+
+
 def comparativo_equipe_mes(
     db: Session, exercicio: int, mes: int, divisao: str | None = None
 ) -> dict:

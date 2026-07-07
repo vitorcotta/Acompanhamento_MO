@@ -27,6 +27,7 @@ from services import (
     list_divisoes,
     list_exercicios,
     list_meses,
+    orcamento_equipe_anual,
     pivot_colaboradores,
     pivot_equipes,
     resumo_divisoes_mensal,
@@ -106,6 +107,13 @@ def api_orcamento_equipe(
     db: Session = Depends(get_db),
 ):
     return comparativo_equipe_mes(db, exercicio, mes, divisao)
+
+
+@app.get("/api/orcamento-equipe-anual/{exercicio}")
+def api_orcamento_equipe_anual(
+    exercicio: int, divisao: str | None = None, db: Session = Depends(get_db)
+):
+    return orcamento_equipe_anual(db, exercicio, divisao)
 
 
 @app.get("/api/meses/{exercicio}")

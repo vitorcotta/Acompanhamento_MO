@@ -19,7 +19,15 @@
       "Bash(command -v chromium-cli)",
       "Bash(npx --yes chromium-cli --help)",
       "Bash(curl -s http://127.0.0.1:8123/static/app.js)",
-      "Bash(pkill -f \"uvicorn main:app\")"
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/Users/vitorcotta/Documents/GitHub/Acompanhamento_MO/backend/services.py'\\).read\\(\\)\\); ast.parse\\(open\\('/Users/vitorcotta/Documents/GitHub/Acompanhamento_MO/backend/main.py'\\).read\\(\\)\\); print\\('ok'\\)\")",
+      "Bash(curl -s \"http://127.0.0.1:8123/api/divisoes/2026\")",
+      "Bash(curl -s \"http://127.0.0.1:8123/api/orcamento-equipe-anual/2026?divisao=100100042.0\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"http://127.0.0.1:8123/api/orcamento/2026\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d['tem_orcamento']\\)\")",
+      "Bash(curl -s http://127.0.0.1:8123/ -o /dev/null -w \"%{http_code}\\\\n\")",
+      "Bash(curl -s http://127.0.0.1:8123/static/index.html)"
     ]
   }
 }

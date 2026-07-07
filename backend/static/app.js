@@ -711,9 +711,10 @@ async function loadCompararPage() {
 async function loadDivisaoPage() {
   if (!exercicioAtual || !divisaoAtual) return;
   const q = divisaoQuery(divisaoAtual);
-  const [{ resumo }, pivot] = await Promise.all([
+  const [{ resumo }, pivot, orcEquipe] = await Promise.all([
     api(`/api/resumo/${exercicioAtual}${q}`),
     api(`/api/pivot/${exercicioAtual}${q}`),
+    api(`/api/orcamento-equipe-anual/${exercicioAtual}${q}`),
   ]);
   renderCards("div-cards-mes", resumo);
   renderCharts(divCharts, {
@@ -722,6 +723,67 @@ async function loadDivisaoPage() {
     stack: "div-chart-stack",
   }, resumo);
   renderPivotTable(document.getElementById("div-pivot-table"), pivot);
+  renderDivOrcamentoEquipeTable(orcEquipe);
+}
+
+function renderDivOrcamentoEquipeTable(data) {
+  const emptyEl = document.getElementById("div-orc-empty");
+  const tableWrap = document.getElementById("div-orc-equipe-wrap");
+  const cardsEl = document.getElementById("div-orc-cards");
+
+  if (!data.tem_orcamento) {
+    emptyEl.classList.remove("hidden");
+    tableWrap.classList.add("hidden");
+    cardsEl.innerHTML = "";
+    return;
+  }
+
+  emptyEl.classList.add("hidden");
+  tableWrap.classList.remove("hidden");
+
+  const t = data.totais;
+  cardsEl.innerHTML = `
+    <div class="card"><div class="label">Orçado (ano)</div><div class="value">${fmt(t.orcado)}</div></div>
+    <div class="card"><div class="label">Realizado (ano)</div><div class="value">${fmt(t.realizado)}</div></div>
+    <div class="card"><div class="label">Saldo</div><div class="value">${fmt(t.saldo)}</div></div>
+    <div class="card"><div class="label">Consumo</div><div class="value ${consumoClass(t.consumo_pct)}">${t.consumo_pct ?? "—"}%</div></div>
+  `;
+
+  const thead = document.querySelector("#div-orc-equipe-table thead");
+  const tbody = document.querySelector("#div-orc-equipe-table tbody");
+  const monthHeaders = data.meses
+    .map((m) => `<th>${m.label}<br><span class="sub">orc / real / %</span></th>`)
+    .join("");
+  thead.innerHTML = `<tr>
+    <th>Equipe</th>
+    ${monthHeaders}
+    <th>Total<br><span class="sub">orc / real / %</span></th>
+  </tr>`;
+
+  tbody.innerHTML = data.linhas
+    .map((linha) => {
+      const cells = data.meses
+        .map((m) => {
+          const c = linha.meses[m.num];
+          const pct =
+            c.orcado > 0 ? Math.round((c.realizado / c.orcado) * 1000) / 10 : null;
+          return `<td>
+            <span class="sub">${fmtShort(c.orcado)} / ${fmtShort(c.realizado)}</span>
+            <span class="${consumoClass(pct)}">${pct != null ? `${pct}%` : "—"}</span>
+          </td>`;
+        })
+        .join("");
+      const tot = linha.total_ano;
+      return `<tr>
+        <td class="pivot-row-name">${linha.equipe}</td>
+        ${cells}
+        <td>
+          <span class="sub">${fmtShort(tot.orcado)} / ${fmtShort(tot.realizado)}</span>
+          <span class="${consumoClass(tot.consumo_pct)}">${tot.consumo_pct != null ? `${tot.consumo_pct}%` : "—"}</span>
+        </td>
+      </tr>`;
+    })
+    .join("");
 }
 
 async function deleteArquivo(id, nome, tipo) {
