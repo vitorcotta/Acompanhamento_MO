@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -46,6 +46,20 @@ class Orcamento(Base):
 
     __table_args__ = (
         UniqueConstraint("exercicio", "despesa", "divisao", "mes", name="uq_orcamento_chave"),
+    )
+
+
+class Pessoa(Base):
+    __tablename__ = "pessoas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nome: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    pertence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    data_saida: Mapped[date | None] = mapped_column(Date, nullable=True)
+    observacao: Mapped[str] = mapped_column(String(512), default="")
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
 

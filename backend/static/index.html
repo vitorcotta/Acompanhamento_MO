@@ -27,6 +27,7 @@
     <button type="button" class="tab active" data-tab="dashboard">Dashboard</button>
     <button type="button" class="tab" data-tab="pivot">Por equipe</button>
     <button type="button" class="tab" data-tab="pessoas">Por pessoa</button>
+    <button type="button" class="tab" data-tab="cadastro">Cadastro de pessoas<span id="cad-tab-badge" class="tab-badge hidden">0</span></button>
     <button type="button" class="tab" data-tab="divisao">Por divisão</button>
     <button type="button" class="tab" data-tab="comparar">Comparar meses</button>
     <button type="button" class="tab" data-tab="orcamento">Orçado vs realizado</button>
@@ -60,7 +61,7 @@
     </section>
 
     <section id="panel-pivot" class="panel">
-      <p class="hint">Valores realizados por <strong>Descrição Despesa</strong> (equipe). Células mostram variação % vs mês anterior. Clique em uma equipe para ver o detalhamento por pessoa.</p>
+      <p class="hint">Valores realizados por <strong>Descrição Despesa</strong> (equipe). Células mostram variação % vs mês anterior. Clique em uma equipe para ver o detalhamento por pessoa. O selo <strong>🆕 novo(s)</strong> indica equipes com gente que apareceu pela primeira vez no mês mais recente — confira se não veio de outra área por engano.</p>
       <div class="table-scroll">
         <table id="pivot-table" class="pivot-table pivot-table--clickable">
           <thead></thead>
@@ -91,6 +92,76 @@
       <div class="table-scroll">
         <table id="pessoas-pivot-table" class="pivot-table pivot-table--pessoas">
           <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="panel-cadastro" class="panel">
+      <p class="hint">Cadastro de quem é (ou não é) da sua equipe. Quem sai continua aparecendo nos relatórios, mas <strong>zerado</strong> a partir do mês de saída. Pessoas marcadas como "não é da equipe" ou ainda não cadastradas são apenas sinalizadas — os valores não mudam.</p>
+
+      <h3 class="section-title">Lista do mês</h3>
+      <div class="panel-toolbar">
+        <label class="select-wrap">
+          Mês
+          <select id="cad-mes-lista"></select>
+        </label>
+      </div>
+      <p class="hint">Quem foi alocado neste mês, linha a linha, com o status de pertencimento. Use para validar um arquivo recém-importado.</p>
+      <div class="table-scroll">
+        <table class="simple-table" id="cad-mes-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Equipe</th>
+              <th>Divisão</th>
+              <th>Despesa</th>
+              <th>Valor</th>
+              <th>É da equipe?</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="cad-pendentes-box" class="hint hidden">
+        <h3 class="section-title">Pendentes de revisão neste exercício</h3>
+        <p class="hint">Apareceram em lançamentos mas ainda não estão no cadastro:</p>
+        <div id="cad-pendentes-lista" class="cad-pendentes-lista"></div>
+      </div>
+
+      <h3 class="section-title">Adicionar pessoa</h3>
+      <div class="panel-toolbar panel-toolbar--wrap">
+        <label class="select-wrap">
+          Nome
+          <input type="text" id="cad-novo-nome" placeholder="Nome do colaborador" />
+        </label>
+        <label class="select-wrap">
+          Status
+          <select id="cad-novo-pertence">
+            <option value="true">É da minha equipe</option>
+            <option value="false">Não é da minha equipe</option>
+          </select>
+        </label>
+        <label class="select-wrap">
+          Data de saída (opcional)
+          <input type="date" id="cad-novo-saida" />
+        </label>
+        <button type="button" id="cad-novo-salvar" class="btn">Adicionar</button>
+      </div>
+
+      <h3 class="section-title">Pessoas cadastradas</h3>
+      <div class="table-scroll">
+        <table class="simple-table" id="cad-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Status</th>
+              <th>Data de saída</th>
+              <th>Observação</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody></tbody>
         </table>
       </div>
@@ -192,6 +263,10 @@
           <h2>% consumo do orçado</h2>
           <div class="chart-canvas-wrap"><canvas id="orc-chart-consumo"></canvas></div>
         </div>
+      </div>
+      <div class="chart-box wide" id="orc-chart-acumulado-box">
+        <h2>Orçado vs realizado (acumulado no ano)</h2>
+        <div class="chart-canvas-wrap"><canvas id="orc-chart-acumulado"></canvas></div>
       </div>
       <div class="table-scroll">
         <table id="orc-table" class="orc-table">

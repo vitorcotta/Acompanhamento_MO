@@ -71,6 +71,47 @@ backend/
   importer.py          # leitura Excel
   services.py          # agregações
   static/              # frontend
+mcp/
+  server.py            # servidor MCP (exposto ao Claude Desktop)
+  reveal.py            # CLI local para desanonimizar um pseudônimo
+  Dockerfile
 docker-compose.yml
 Dockerfile
+```
+
+## MCP (análise com IA no Claude Desktop)
+
+O serviço `mcp` expõe os dados do app como tools para o Claude Desktop analisar orçado vs. realizado, achar linhas fora da meta e resumos por divisão. Ele sobe junto com o `docker compose up --build` e fica parado (idle) esperando o Claude Desktop entrar via `docker exec -i`.
+
+### Configuração no Claude Desktop
+
+Em `claude_desktop_config.json`, adicione:
+
+```json
+"acompanhamento-mo": {
+  "command": "docker",
+  "args": ["exec", "-i", "acompanhamento_mo-mcp-1", "python", "server.py"]
+}
+```
+
+Reinicie o Claude Desktop depois de editar o config.
+
+### Tools disponíveis
+
+- `listar_exercicios`
+- `orcado_vs_realizado`
+- `linhas_fora_da_meta`
+- `resumo_por_divisao`
+- `pessoas_do_mes`
+
+### Anonimização dos colaboradores
+
+Antes de qualquer nome de colaborador chegar à IA, o `server.py` troca o nome real por um pseudônimo estável (`Colaborador-XXXXXX`), gerado por hash SHA256 de `salt + nome`. O salt é gerado na primeira execução e persiste no volume Docker `mcp_salt`, então o mesmo colaborador sempre vira o mesmo pseudônimo entre sessões — mas a IA nunca vê o nome real nem consegue reverter o hash.
+
+**Para descobrir quem é um `Colaborador-XXXXXX` que apareceu numa análise**, use o script local `reveal.py` (não é uma tool do MCP — só roda manualmente no seu terminal, fora do alcance da IA):
+
+```bash
+docker exec -i acompanhamento_mo-mcp-1 python reveal.py Colaborador-9C2710
+# ou só o código:
+docker exec -i acompanhamento_mo-mcp-1 python reveal.py 9C2710 --exercicio 2026
 ```

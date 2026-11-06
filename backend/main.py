@@ -20,18 +20,23 @@ from models import Arquivo, OrcamentoArquivo
 from simulation import exportar_ajustes_xlsx, list_destinos, list_lancamentos
 from services import (
     colaboradores,
+    colaboradores_nao_cadastrados,
     comparativo_equipe_mes,
     comparativo_orcamento,
     comparar_meses,
+    delete_pessoa,
     list_arquivos,
     list_divisoes,
     list_exercicios,
     list_meses,
+    list_pessoas,
+    lista_mensal_pessoas,
     orcamento_equipe_anual,
     pivot_colaboradores,
     pivot_equipes,
     resumo_divisoes_mensal,
     resumo_mensal,
+    upsert_pessoa,
 )
 
 EXCEL_SEED_DIR = Path(os.environ.get("EXCEL_SEED_DIR", "/seed/Excel"))
@@ -199,6 +204,47 @@ def api_colaboradores(
     exercicio: int, mes: int | None = None, db: Session = Depends(get_db)
 ):
     return {"colaboradores": colaboradores(db, exercicio, mes)}
+
+
+@app.get("/api/pessoas")
+def api_pessoas(db: Session = Depends(get_db)):
+    return {"pessoas": list_pessoas(db)}
+
+
+@app.post("/api/pessoas")
+def api_pessoas_upsert(body: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        pessoa = upsert_pessoa(
+            db,
+            nome=body.get("nome", ""),
+            pertence=bool(body.get("pertence", True)),
+            data_saida=body.get("data_saida") or None,
+            observacao=body.get("observacao", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return pessoa
+
+
+@app.delete("/api/pessoas/{pessoa_id}")
+def api_pessoas_delete(pessoa_id: int, db: Session = Depends(get_db)):
+    delete_pessoa(db, pessoa_id)
+    return {"ok": True}
+
+
+@app.get("/api/pessoas-nao-cadastradas/{exercicio}")
+def api_pessoas_nao_cadastradas(exercicio: int, db: Session = Depends(get_db)):
+    return {"nomes": colaboradores_nao_cadastrados(db, exercicio)}
+
+
+@app.get("/api/pessoas-mes/{exercicio}")
+def api_pessoas_mes(
+    exercicio: int,
+    mes: int = Query(..., ge=1, le=12),
+    divisao: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return {"linhas": lista_mensal_pessoas(db, exercicio, mes, divisao)}
 
 
 @app.post("/api/upload")

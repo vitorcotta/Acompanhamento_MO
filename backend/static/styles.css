@@ -506,3 +506,72 @@ main { padding: 1.25rem 1.5rem; max-width: 1400px; margin: 0 auto; }
 .orc-table .consumo-over { color: #f87171; font-weight: 600; }
 .orc-table .sub { display: block; font-size: 0.68rem; color: var(--muted); }
 .hidden { display: none !important; }
+
+.tab-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  min-width: 1.1rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #1a1300;
+  font-size: 0.68rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.upload-warn {
+  display: block;
+  margin-top: 0.4rem;
+  color: #fcd34d;
+}
+.upload-warn .link-btn { color: #fcd34d; text-decoration: underline; }
+
+.pessoa-status {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.pessoa-status.status-ativo { background: #10b98133; color: #6ee7b7; }
+.pessoa-status.status-nao_cadastrado { background: #f59e0b33; color: #fcd34d; }
+.pessoa-status.status-nao_pertence { background: #ef444433; color: #f87171; }
+.pessoa-status.status-saiu { background: #2d3a4f; color: var(--muted); }
+.pessoa-status.status-novo { background: #3d8bfd33; color: #93c5fd; cursor: help; }
+
+.btn.tiny {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #0b1220;
+}
+.btn.tiny.secondary { background: var(--surface2); color: var(--text); }
+
+.cad-pendentes-lista { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.cad-pendente-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+#cad-table select,
+#cad-table input[type="date"],
+#cad-table input[type="text"] {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+}
+#cad-table input[type="text"] { width: 100%; }

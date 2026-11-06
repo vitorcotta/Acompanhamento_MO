@@ -31,8 +31,19 @@ services:
       - proxy
     restart: unless-stopped
 
+  mcp:
+    build: ./mcp
+    networks:
+      - proxy
+    volumes:
+      - mcp_salt:/salt
+    environment:
+      MO_API_BASE: http://app:8000
+    restart: unless-stopped
+
 volumes:
   mo_data:
+  mcp_salt:
 
 networks:
   proxy:

@@ -1,7 +1,9 @@
+from datetime import date, datetime
+
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from models import Arquivo, Lancamento, Orcamento, OrcamentoArquivo
+from models import Arquivo, Lancamento, Orcamento, OrcamentoArquivo, Pessoa
 
 MESES_NOME = {
     1: "Jan",
@@ -321,6 +323,40 @@ def comparar_meses(
     }
 
 
+def novidades_por_equipe(db: Session, exercicio: int, divisao: str | None = None) -> dict[str, dict]:
+    """Colaboradores cuja primeira aparição na equipe, neste exercício, é o mês mais
+    recente com lançamentos — possível sinal de alguém alocado vindo de outra área."""
+    meses_q = db.query(Lancamento.mes).filter(Lancamento.exercicio == exercicio)
+    meses_q = _filter_divisao(meses_q, divisao)
+    meses = sorted({r[0] for r in meses_q.distinct().all()})
+    if len(meses) < 2:
+        return {}
+    ultimo_mes = meses[-1]
+
+    q = db.query(
+        Lancamento.equipe,
+        Lancamento.colaborador,
+        func.min(Lancamento.mes).label("primeiro_mes"),
+    ).filter(Lancamento.exercicio == exercicio, Lancamento.colaborador != "")
+    q = _filter_divisao(q, divisao)
+    rows = q.group_by(Lancamento.equipe, Lancamento.colaborador).all()
+
+    resultado: dict[str, dict] = {}
+    for r in rows:
+        if r.primeiro_mes != ultimo_mes:
+            continue
+        bucket = resultado.setdefault(
+            r.equipe,
+            {
+                "novos": [],
+                "mes": ultimo_mes,
+                "mes_label": MESES_NOME.get(ultimo_mes, str(ultimo_mes)),
+            },
+        )
+        bucket["novos"].append(r.colaborador)
+    return resultado
+
+
 def pivot_equipes(db: Session, exercicio: int, divisao: str | None = None) -> dict:
     q = db.query(
         Lancamento.equipe,
@@ -332,6 +368,7 @@ def pivot_equipes(db: Session, exercicio: int, divisao: str | None = None) -> di
     rows = q.group_by(Lancamento.equipe, Lancamento.mes, Lancamento.is_adm).all()
     result = _build_pivot(rows, lambda r: r.equipe)
     result["equipes"] = result["linhas"]
+    result["novidades_equipe"] = novidades_por_equipe(db, exercicio, divisao)
     return result
 
 
@@ -351,8 +388,245 @@ def pivot_colaboradores(
         q = q.filter(Lancamento.equipe == equipe)
     rows = q.group_by(Lancamento.colaborador, Lancamento.mes, Lancamento.is_adm).all()
     result = _build_pivot(rows, lambda r: r.colaborador)
+    _merge_cadastro_pessoas(result, db, exercicio, equipe)
     result["colaboradores"] = result["linhas"]
+    if equipe:
+        novidade_equipe = novidades_por_equipe(db, exercicio).get(equipe)
+        if novidade_equipe:
+            novos = set(novidade_equipe["novos"])
+            result["novidades_pessoas"] = {
+                nome: {
+                    "tipo": "novo_na_equipe",
+                    "label": f"Novo em {novidade_equipe['mes_label']} — confira a origem",
+                }
+                for nome in result["linhas"]
+                if nome in novos
+            }
     return result
+
+
+def _status_pessoa(pessoa: Pessoa | None) -> dict:
+    if pessoa is None:
+        return {"tipo": "nao_cadastrado", "label": "Não cadastrado"}
+    if not pessoa.pertence:
+        return {"tipo": "nao_pertence", "label": "Não é da equipe"}
+    if pessoa.data_saida:
+        mes_label = MESES_NOME.get(pessoa.data_saida.month, str(pessoa.data_saida.month))
+        return {"tipo": "saiu", "label": f"Saiu em {mes_label}/{pessoa.data_saida.year}"}
+    return {"tipo": "ativo", "label": "Ativo"}
+
+
+def _recalcula_variacao(result: dict, nome: str) -> None:
+    meses_nums = [m["num"] for m in result["meses"]]
+    row = result["grid"][nome]
+    var: dict[int, float | None] = {}
+    for i, mn in enumerate(meses_nums):
+        if i == 0:
+            var[mn] = None
+            continue
+        prev_v = row["meses"][meses_nums[i - 1]]["total"]
+        cur_v = row["meses"][mn]["total"]
+        var[mn] = round((cur_v - prev_v) / prev_v * 100, 1) if prev_v else None
+    result["variacoes"][nome] = var
+
+
+def _zera_apos_saida(result: dict, nome: str, data_saida: date, exercicio: int) -> None:
+    if exercicio < data_saida.year:
+        return
+    mes_corte = data_saida.month if exercicio == data_saida.year else 1
+    row = result["grid"][nome]
+    zerou = False
+    for m in result["meses"]:
+        mes_num = m["num"]
+        if mes_num >= mes_corte:
+            cell = row["meses"][mes_num]
+            if cell["total"] or cell["adm"] or cell["time"]:
+                zerou = True
+            row["meses"][mes_num] = {"adm": 0.0, "time": 0.0, "total": 0.0}
+    if not zerou:
+        return
+    row["total_ano"] = {
+        key: round(sum(row["meses"][m["num"]][key] for m in result["meses"]), 2)
+        for key in ("adm", "time", "total")
+    }
+    _recalcula_variacao(result, nome)
+
+
+def _merge_cadastro_pessoas(
+    result: dict, db: Session, exercicio: int, equipe: str | None
+) -> None:
+    pessoas = {p.nome: p for p in db.query(Pessoa).all()}
+
+    if equipe is None:
+        nomes_existentes = set(result["linhas"])
+        for nome, pessoa in pessoas.items():
+            if pessoa.pertence and nome not in nomes_existentes:
+                result["linhas"].append(nome)
+                result["grid"][nome] = {
+                    "meses": {
+                        m["num"]: {"adm": 0.0, "time": 0.0, "total": 0.0}
+                        for m in result["meses"]
+                    },
+                    "total_ano": {"adm": 0.0, "time": 0.0, "total": 0.0},
+                }
+                result["variacoes"][nome] = {m["num"]: None for m in result["meses"]}
+        result["linhas"].sort()
+        result["colaboradores"] = result["linhas"]
+
+    for nome in result["linhas"]:
+        pessoa = pessoas.get(nome)
+        if pessoa and pessoa.pertence and pessoa.data_saida:
+            _zera_apos_saida(result, nome, pessoa.data_saida, exercicio)
+
+    result["status_pessoas"] = {
+        nome: _status_pessoa(pessoas.get(nome)) for nome in result["linhas"]
+    }
+
+
+def _pessoa_dict(pessoa: Pessoa) -> dict:
+    return {
+        "id": pessoa.id,
+        "nome": pessoa.nome,
+        "pertence": pessoa.pertence,
+        "data_saida": pessoa.data_saida.isoformat() if pessoa.data_saida else None,
+        "observacao": pessoa.observacao,
+    }
+
+
+def list_pessoas(db: Session) -> list[dict]:
+    pessoas = db.query(Pessoa).order_by(Pessoa.nome).all()
+    return [_pessoa_dict(p) for p in pessoas]
+
+
+def upsert_pessoa(
+    db: Session,
+    nome: str,
+    pertence: bool,
+    data_saida: str | None,
+    observacao: str = "",
+) -> dict:
+    nome = (nome or "").strip()
+    if not nome:
+        raise ValueError("Nome é obrigatório")
+    saida = date.fromisoformat(data_saida) if data_saida else None
+
+    pessoa = db.query(Pessoa).filter(Pessoa.nome == nome).first()
+    if pessoa is None:
+        pessoa = Pessoa(nome=nome, pertence=pertence, data_saida=saida, observacao=observacao)
+        db.add(pessoa)
+    else:
+        pessoa.pertence = pertence
+        pessoa.data_saida = saida
+        pessoa.observacao = observacao
+        pessoa.atualizado_em = datetime.utcnow()
+    db.commit()
+    db.refresh(pessoa)
+    return _pessoa_dict(pessoa)
+
+
+def delete_pessoa(db: Session, pessoa_id: int) -> None:
+    pessoa = db.get(Pessoa, pessoa_id)
+    if pessoa:
+        db.delete(pessoa)
+        db.commit()
+
+
+_STATUS_PRIORIDADE = {
+    "nao_pertence": 0,
+    "nao_cadastrado": 1,
+    "saiu": 2,
+    "ativo": 3,
+}
+
+
+def lista_mensal_pessoas(
+    db: Session, exercicio: int, mes: int, divisao: str | None = None
+) -> list[dict]:
+    """Lista consolidada por pessoa de quem foi alocado no mês, com o status de
+    pertencimento — para validar um arquivo recém-importado. Valores aqui NÃO são
+    zerados: é justamente o lugar para flagrar alguém que saiu (ou nunca foi da
+    equipe) mas ainda apareceu com valor neste mês. Quando a pessoa tem lançamentos
+    em mais de uma equipe/divisão/despesa no mesmo mês, as colunas mostram todas,
+    separadas por " / ".
+    """
+    q = db.query(
+        Lancamento.colaborador,
+        Lancamento.equipe,
+        Lancamento.divisao,
+        Lancamento.despesa,
+        Lancamento.valor,
+    ).filter(
+        Lancamento.exercicio == exercicio,
+        Lancamento.mes == mes,
+        Lancamento.colaborador != "",
+    )
+    if divisao:
+        q = q.filter(Lancamento.divisao == divisao)
+    rows = q.all()
+
+    por_pessoa: dict[str, dict] = {}
+    for r in rows:
+        chave = " ".join(r.colaborador.split()).casefold()
+        bucket = por_pessoa.setdefault(
+            chave,
+            {
+                "nome": " ".join(r.colaborador.split()),
+                "valor": 0.0,
+                "equipes": set(),
+                "divisoes": set(),
+                "despesas": set(),
+            },
+        )
+        bucket["valor"] += float(r.valor)
+        bucket["equipes"].add(r.equipe)
+        bucket["divisoes"].add(r.divisao)
+        bucket["despesas"].add(r.despesa)
+
+    pessoas = {p.nome: p for p in db.query(Pessoa).all()}
+    novidades = novidades_por_equipe(db, exercicio, divisao)
+
+    linhas = []
+    for info in por_pessoa.values():
+        nome = info["nome"]
+        status = _status_pessoa(pessoas.get(nome))
+        novidade = None
+        for eq in info["equipes"]:
+            bucket = novidades.get(eq)
+            if bucket and nome in bucket["novos"]:
+                novidade = f"Novo em {bucket['mes_label']}"
+                break
+        linhas.append(
+            {
+                "colaborador": nome,
+                "equipe": " / ".join(sorted(info["equipes"])),
+                "divisao": " / ".join(sorted(info["divisoes"])),
+                "despesa": " / ".join(sorted(info["despesas"])),
+                "valor": round(info["valor"], 2),
+                "status": status,
+                "novidade": novidade,
+            }
+        )
+
+    linhas.sort(
+        key=lambda x: (
+            _STATUS_PRIORIDADE.get(x["status"]["tipo"], 3),
+            0 if x["novidade"] else 1,
+            x["colaborador"],
+        )
+    )
+    return linhas
+
+
+def colaboradores_nao_cadastrados(db: Session, exercicio: int) -> list[str]:
+    nomes_lancamentos = {
+        r[0]
+        for r in db.query(Lancamento.colaborador)
+        .filter(Lancamento.exercicio == exercicio, Lancamento.colaborador != "")
+        .distinct()
+        .all()
+    }
+    nomes_cadastrados = {r[0] for r in db.query(Pessoa.nome).all()}
+    return sorted(nomes_lancamentos - nomes_cadastrados)
 
 
 def colaboradores(db: Session, exercicio: int, mes: int | None = None) -> list[dict]:

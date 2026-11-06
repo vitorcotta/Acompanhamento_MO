@@ -344,6 +344,9 @@ function renderPivotTable(
   { rowAttr } = {}
 ) {
   const linhas = data.linhas || data.equipes || data.colaboradores || [];
+  const statusPessoas = data.status_pessoas || {};
+  const novidadesEquipe = data.novidades_equipe || {};
+  const novidadesPessoas = data.novidades_pessoas || {};
   const thead = tableEl.querySelector("thead");
   const tbody = tableEl.querySelector("tbody");
   const monthHeaders = data.meses
@@ -374,8 +377,22 @@ function renderPivotTable(
       const tot = row.total_ano;
       const pctAno = tot.total ? ((tot.adm / tot.total) * 100).toFixed(0) : 0;
       const attr = rowAttr ? ` data-${rowAttr}="${linha.replace(/"/g, "&quot;")}"` : "";
+      const status = statusPessoas[linha];
+      const statusHtml =
+        status && status.tipo !== "ativo"
+          ? `<span class="pessoa-status status-${status.tipo}">${status.label}</span>`
+          : "";
+      const novidadeEq = novidadesEquipe[linha];
+      const novidadePessoa = novidadesPessoas[linha];
+      let novidadeHtml = "";
+      if (novidadeEq && novidadeEq.novos.length) {
+        const titulo = novidadeEq.novos.map((n) => n.replace(/"/g, "&quot;")).join(", ");
+        novidadeHtml = `<span class="pessoa-status status-novo" title="${titulo}">🆕 ${novidadeEq.novos.length} novo(s) em ${novidadeEq.mes_label}</span>`;
+      } else if (novidadePessoa) {
+        novidadeHtml = `<span class="pessoa-status status-novo">🆕 ${novidadePessoa.label}</span>`;
+      }
       return `<tr${attr}>
-        <td class="pivot-row-name">${linha}</td>
+        <td class="pivot-row-name">${linha}${statusHtml}${novidadeHtml}</td>
         ${cells}
         <td>${fmt(tot.total)}<span class="sub">ADM ${pctAno}%</span></td>
       </tr>`;
@@ -510,6 +527,7 @@ async function loadMesesComparar() {
     ids.forEach((id) => {
       document.getElementById(id).innerHTML = "";
     });
+    document.getElementById("cad-mes-lista").innerHTML = "";
     mesesDisponiveis = [];
     return;
   }
@@ -522,9 +540,11 @@ async function loadMesesComparar() {
     if (meses.length === 1) {
       fillMesSelect("orc-eq-mes", meses, meses[0].num);
       fillMesSelect("sim-mes", meses, meses[0].num);
+      fillMesSelect("cad-mes-lista", meses, meses[0].num);
     } else {
       document.getElementById("orc-eq-mes").innerHTML = "<option>—</option>";
       document.getElementById("sim-mes").innerHTML = "<option>—</option>";
+      document.getElementById("cad-mes-lista").innerHTML = "<option>—</option>";
     }
     return;
   }
@@ -533,6 +553,7 @@ async function loadMesesComparar() {
   fillMesSelect("cmp-mes-3", meses, meses[Math.min(2, meses.length - 1)].num);
   fillMesSelect("orc-eq-mes", meses, meses[meses.length - 1].num);
   fillMesSelect("sim-mes", meses, meses[meses.length - 1].num);
+  fillMesSelect("cad-mes-lista", meses, meses[meses.length - 1].num);
 }
 
 function getCmpMesesSelecionados() {
@@ -848,6 +869,190 @@ function setupArquivosTable() {
   });
 }
 
+async function atualizarContadorPendentes() {
+  const badge = document.getElementById("cad-tab-badge");
+  if (!exercicioAtual) {
+    badge.classList.add("hidden");
+    return 0;
+  }
+  const { nomes } = await api(`/api/pessoas-nao-cadastradas/${exercicioAtual}`);
+  if (nomes.length) {
+    badge.textContent = nomes.length;
+    badge.classList.remove("hidden");
+  } else {
+    badge.classList.add("hidden");
+  }
+  return nomes.length;
+}
+
+async function loadCadastro() {
+  const [{ pessoas }, pendentesData] = await Promise.all([
+    api("/api/pessoas"),
+    exercicioAtual
+      ? api(`/api/pessoas-nao-cadastradas/${exercicioAtual}`)
+      : Promise.resolve({ nomes: [] }),
+  ]);
+  renderCadPendentes(pendentesData.nomes);
+  renderCadTable(pessoas);
+  await loadCadMesLista();
+}
+
+async function loadCadMesLista() {
+  const tbody = document.querySelector("#cad-mes-table tbody");
+  const mesSel = document.getElementById("cad-mes-lista");
+  const mes = parseInt(mesSel.value, 10);
+  if (!exercicioAtual || !mes) {
+    tbody.innerHTML = `<tr><td colspan="6">Sem meses disponíveis neste exercício.</td></tr>`;
+    return;
+  }
+  const { linhas } = await api(`/api/pessoas-mes/${exercicioAtual}?mes=${mes}`);
+  if (!linhas.length) {
+    tbody.innerHTML = `<tr><td colspan="6">Nenhum lançamento neste mês.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = linhas
+    .map((l) => {
+      const statusHtml = `<span class="pessoa-status status-${l.status.tipo}">${l.status.label}</span>`;
+      const novidadeHtml = l.novidade
+        ? ` <span class="pessoa-status status-novo">🆕 ${escapeHtml(l.novidade)}</span>`
+        : "";
+      return `<tr>
+        <td>${escapeHtml(l.colaborador)}</td>
+        <td>${escapeHtml(l.equipe)}</td>
+        <td>${escapeHtml(l.divisao)}</td>
+        <td>${escapeHtml(l.despesa)}</td>
+        <td>${fmt(l.valor)}</td>
+        <td>${statusHtml}${novidadeHtml}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function renderCadPendentes(nomes) {
+  const box = document.getElementById("cad-pendentes-box");
+  const lista = document.getElementById("cad-pendentes-lista");
+  if (!nomes.length) {
+    box.classList.add("hidden");
+    lista.innerHTML = "";
+    return;
+  }
+  box.classList.remove("hidden");
+  lista.innerHTML = nomes
+    .map(
+      (nome) => `<span class="cad-pendente-chip">
+        ${escapeHtml(nome)}
+        <button type="button" class="btn tiny" data-cad-add="${escapeHtml(nome)}" data-cad-pertence="true">É da equipe</button>
+        <button type="button" class="btn tiny secondary" data-cad-add="${escapeHtml(nome)}" data-cad-pertence="false">Não é</button>
+      </span>`
+    )
+    .join("");
+}
+
+function renderCadTable(pessoas) {
+  const tbody = document.querySelector("#cad-table tbody");
+  if (!pessoas.length) {
+    tbody.innerHTML = `<tr><td colspan="5">Nenhuma pessoa cadastrada ainda.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = pessoas
+    .map(
+      (p) => `<tr data-pessoa-id="${p.id}">
+        <td>${escapeHtml(p.nome)}</td>
+        <td>
+          <select class="cad-edit-pertence">
+            <option value="true" ${p.pertence ? "selected" : ""}>É da minha equipe</option>
+            <option value="false" ${!p.pertence ? "selected" : ""}>Não é da minha equipe</option>
+          </select>
+        </td>
+        <td><input type="date" class="cad-edit-saida" value="${p.data_saida || ""}" /></td>
+        <td><input type="text" class="cad-edit-obs" value="${escapeHtml(p.observacao || "")}" /></td>
+        <td>
+          <button type="button" class="btn secondary cad-salvar">Salvar</button>
+          <button type="button" class="btn danger cad-remover">Remover</button>
+        </td>
+      </tr>`
+    )
+    .join("");
+}
+
+async function salvarPessoa(nome, pertence, dataSaida, observacao) {
+  await api("/api/pessoas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nome, pertence, data_saida: dataSaida || null, observacao }),
+  });
+}
+
+async function removerPessoa(id) {
+  await api(`/api/pessoas/${id}`, { method: "DELETE" });
+}
+
+function setupCadastro() {
+  document.getElementById("cad-mes-lista").addEventListener("change", () => loadCadMesLista());
+
+  document.getElementById("cad-novo-salvar").addEventListener("click", async () => {
+    const nomeInput = document.getElementById("cad-novo-nome");
+    const nome = nomeInput.value.trim();
+    if (!nome) {
+      alert("Informe o nome.");
+      return;
+    }
+    const pertence = document.getElementById("cad-novo-pertence").value === "true";
+    const dataSaida = document.getElementById("cad-novo-saida").value;
+    try {
+      await salvarPessoa(nome, pertence, dataSaida, "");
+      nomeInput.value = "";
+      document.getElementById("cad-novo-saida").value = "";
+      await loadCadastro();
+      await refreshAll();
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  document.getElementById("cad-pendentes-lista").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-cad-add]");
+    if (!btn) return;
+    const nome = btn.dataset.cadAdd;
+    const pertence = btn.dataset.cadPertence === "true";
+    try {
+      await salvarPessoa(nome, pertence, null, "");
+      await loadCadastro();
+      await refreshAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.querySelector("#cad-table tbody").addEventListener("click", async (e) => {
+    const row = e.target.closest("tr[data-pessoa-id]");
+    if (!row) return;
+    const id = Number(row.dataset.pessoaId);
+    if (e.target.closest(".cad-salvar")) {
+      const nome = row.querySelector("td").textContent.trim();
+      const pertence = row.querySelector(".cad-edit-pertence").value === "true";
+      const dataSaida = row.querySelector(".cad-edit-saida").value;
+      const observacao = row.querySelector(".cad-edit-obs").value;
+      try {
+        await salvarPessoa(nome, pertence, dataSaida, observacao);
+        await loadCadastro();
+        await refreshAll();
+      } catch (err) {
+        alert(err.message);
+      }
+    } else if (e.target.closest(".cad-remover")) {
+      if (!confirm("Remover esta pessoa do cadastro?")) return;
+      try {
+        await removerPessoa(id);
+        await loadCadastro();
+        await refreshAll();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+  });
+}
+
 function consumoClass(pct) {
   if (pct == null) return "";
   if (pct > 100) return "consumo-over";
@@ -879,11 +1084,13 @@ async function loadOrcamentoPage() {
   const tableWrap = document.querySelector("#orc-table").closest(".table-scroll");
   const cardsEl = document.getElementById("orc-cards");
   const gridEl = document.querySelector("#panel-orcamento .charts-grid");
+  const acumuladoBoxEl = document.getElementById("orc-chart-acumulado-box");
 
   if (!data.tem_orcamento) {
     emptyEl.classList.remove("hidden");
     tableWrap.classList.add("hidden");
     gridEl.classList.add("hidden");
+    acumuladoBoxEl.classList.add("hidden");
     cardsEl.innerHTML = "";
     destroyChartSet(orcCharts);
     return;
@@ -892,6 +1099,7 @@ async function loadOrcamentoPage() {
   emptyEl.classList.add("hidden");
   tableWrap.classList.remove("hidden");
   gridEl.classList.remove("hidden");
+  acumuladoBoxEl.classList.remove("hidden");
 
   const t = data.totais;
   cardsEl.innerHTML = `
@@ -971,6 +1179,50 @@ async function loadOrcamentoPage() {
         y: {
           ticks: { color: "#8b9cb3", callback: (v) => `${v}%` },
           grid: { color: "#2d3a4f33" },
+        },
+      },
+    },
+  });
+
+  let orcAcum = 0;
+  let realAcum = 0;
+  const orcadoAcumulado = data.resumo_mensal.map((m) => (orcAcum += m.orcado));
+  const realizadoAcumulado = data.resumo_mensal.map((m) => (realAcum += m.realizado));
+
+  orcCharts.acumulado = new Chart(document.getElementById("orc-chart-acumulado"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Orçado acumulado",
+          data: orcadoAcumulado,
+          borderColor: "#3d8bfd",
+          backgroundColor: "#3d8bfd33",
+          fill: false,
+          tension: 0.2,
+        },
+        {
+          label: "Realizado acumulado",
+          data: realizadoAcumulado,
+          borderColor: "#10b981",
+          backgroundColor: "#10b98133",
+          fill: false,
+          tension: 0.2,
+        },
+      ],
+    },
+    options: {
+      ...defaults,
+      plugins: {
+        ...defaults.plugins,
+        datalabels: {
+          display: true,
+          align: "top",
+          anchor: "end",
+          color: "#e7ecf3",
+          font: { size: 9, weight: "600" },
+          formatter: (v) => fmtShort(v),
         },
       },
     },
@@ -1755,6 +2007,11 @@ async function refreshAll() {
   if (cmpPanel.classList.contains("active")) {
     await loadCompararPage();
   }
+  const cadPanel = document.getElementById("panel-cadastro");
+  if (cadPanel.classList.contains("active")) {
+    await loadCadastro();
+  }
+  await atualizarContadorPendentes();
 }
 
 function setupTabs() {
@@ -1781,6 +2038,9 @@ function setupTabs() {
       }
       if (tab.dataset.tab === "comparar") {
         await loadCompararPage();
+      }
+      if (tab.dataset.tab === "cadastro") {
+        await loadCadastro();
       }
     });
   });
@@ -1861,6 +2121,18 @@ function setupUpload() {
       await loadSimEquipes();
       await loadMesesComparar();
       await refreshAll();
+      if (res.tipo !== "orcamento") {
+        const pendentes = await atualizarContadorPendentes();
+        if (pendentes > 0) {
+          const aviso = document.createElement("div");
+          aviso.className = "upload-warn";
+          aviso.innerHTML = `⚠ ${pendentes} pessoa(s) nesta importação ainda não est${pendentes > 1 ? "ão" : "á"} no cadastro. <button type="button" class="link-btn" id="upload-ir-cadastro">Revisar agora</button>`;
+          status.appendChild(aviso);
+          document.getElementById("upload-ir-cadastro").addEventListener("click", () => {
+            document.querySelector('[data-tab="cadastro"]').click();
+          });
+        }
+      }
     } catch (e) {
       showStatus(e.message, false);
     }
@@ -1901,6 +2173,7 @@ setupOrcamentoEquipeFilter();
 setupSimulacao();
 setupComparar();
 setupArquivosTable();
+setupCadastro();
 initEquipeModal();
 
 (async () => {
